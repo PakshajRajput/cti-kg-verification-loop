@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "verification-in-the-loop-cti-kg"
+version = "0.1.0"
+description = "Verification-in-the-Loop: Reducing Hallucination in LLM-Based CTI Knowledge Graph Construction"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    # LangChain / LangGraph
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langsmith>=0.1.100",
+    # Hugging Face
+    "huggingface_hub>=0.23.0",
+    # Groq
+    "groq>=0.9.0",
+    # Embeddings & Reranking
+    "sentence-transformers>=3.0.0",
+    # Vector Store
+    "chromadb>=0.5.0",
+    # BM25
+    "rank-bm25>=0.2.2",
+    # MITRE ATT&CK / STIX
+    "stix2>=3.0.1",
+    "mitreattack-python>=3.0.5",
+    # Graph & Viz
+    "networkx>=3.0",
+    "matplotlib>=3.9.0",
+    # Web & API
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "streamlit>=1.38.0",
+    # Data / Eval
+    "pydantic>=2.8.0",
+    "scikit-learn>=1.5.0",
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    # Utilities
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "tqdm>=4.66.0",
+    "tenacity>=8.5.0",
+    "rich>=13.7.0",
+    "typer>=0.12.0",
+    "gitpython>=3.1.43",
+    "requests>=2.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.setuptools.package-dir]
+"" = "."

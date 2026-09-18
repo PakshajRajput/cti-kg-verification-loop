@@ -1,0 +1,15 @@
+Here are {k} example CTI reports with their correct triplet extractions. Study the patterns carefully, then extract triplets from the new report below.
+
+---
+{demonstrations}
+---
+
+## New CTI Report to Analyze
+
+**Report ID**: {report_id}
+**Source**: {source}
+
+**Text**:
+{report_text}
+
+Extract entity-relation-entity triplets from this report. Return a MAXIMUM of 10 triplets. Stop extracting after the 10th triplet. Return ONLY the JSON array.
