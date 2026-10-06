@@ -2,7 +2,7 @@
 
 > **"Verification-in-the-Loop: Reducing Hallucination in LLM-Based Cyber Threat Intelligence Knowledge Graph Construction"**
 
-A research pipeline that extracts entity-relation triplets from CTI reports using few-shot LLM prompting, verifies them against MITRE ATT&CK via hybrid RAG + cross-encoder reranking, and stores verified triplets in a Neo4j knowledge graph. Measures hallucination reduction vs. extraction-only baseline.
+A research pipeline that extracts entity-relation triplets from CTI reports using few-shot LLM prompting, verifies them against MITRE ATT&CK via hybrid RAG + cross-encoder reranking, and stores verified triplets in a NetworkX knowledge graph. Measures hallucination reduction vs. extraction-only baseline.
 
 ---
 
@@ -33,7 +33,7 @@ CTI Report Text
                     Yes │ (attempts < 2)             │ No
                         ▼                           ▼
                   Extractor (loop)          ┌──────────────┐
-                                            │  Neo4j KG    │
+                                            │  NetworkX KG │
                                             │  Writer      │
                                             └──────────────┘
 ```
@@ -188,3 +188,87 @@ If you use this pipeline in your research, please cite:
   year={2024}
 }
 ```
+
+
+---
+
+## Deployment
+
+The deployment branch is **`final-deployment`**. It keeps the original `main` branch unchanged.
+
+### Architecture
+
+```
+Streamlit Community Cloud
+        │
+        │ API_URL
+        ▼
+Render Web Service
+        │
+        ├── FastAPI
+        ├── LangGraph pipeline
+        ├── Hybrid RAG
+        │    ├── ChromaDB
+        │    ├── BM25
+        │    └── Cross-Encoder reranker
+        ├── Groq LLM
+        └── NetworkX knowledge graph
+```
+
+### Backend — Render
+
+The repository includes `Dockerfile` and `render.yaml`.
+
+Create a new Render Blueprint from the **`final-deployment`** branch. Render will use the Dockerfile and the service configuration in `render.yaml`.
+
+Set these secret environment variables in Render:
+
+```text
+GROQ_API_KEY=...
+LANGCHAIN_API_KEY=...
+```
+
+The deployment defaults to:
+
+```text
+LLM_PROVIDER=groq
+PRIMARY_MODEL=openai/gpt-oss-120b
+FALLBACK_MODEL=openai/gpt-oss-20b
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+```
+
+The Render service exposes the FastAPI application and performs its readiness check against `/health`.
+
+### Frontend — Streamlit Community Cloud
+
+Deploy:
+
+```text
+streamlit_app.py
+```
+
+from the **`final-deployment`** branch.
+
+Add this secret/environment variable in the Streamlit app settings:
+
+```text
+API_URL=https://<your-render-service>.onrender.com
+```
+
+The Streamlit application communicates with the backend through:
+
+```text
+POST /extract
+POST /extract/baseline
+GET  /health
+GET  /graph/stats
+GET  /graph/data
+```
+
+The graph is fetched through `/graph/data`, so the frontend does not depend on the backend container's local filesystem.
+
+### Important
+
+The backend uses local transformer models for embeddings and reranking. The Render configuration therefore uses the **1 CPU / 2 GB** compute plan rather than the 512 MB default.
+
