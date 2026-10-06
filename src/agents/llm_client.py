@@ -12,8 +12,8 @@ load_dotenv()
 # ─── Configuration ─────────────────────────────────────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
-PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "llama-3.3-70b-versatile")
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "llama-3.1-8b-instant")
+PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "openai/gpt-oss-120b")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "openai/gpt-oss-20b")
 
 # Provider clients
 groq_client = None
@@ -80,7 +80,7 @@ def call_llm(messages: List[Dict[str, str]], max_tokens: int = 1500, temperature
                 response = groq_client.chat.completions.create(
                     messages=messages,
                     model=PRIMARY_MODEL,
-                    max_tokens=max_tokens,
+                    max_completion_tokens=max_tokens,
                     temperature=temperature
                 )
                 return response.choices[0].message.content
