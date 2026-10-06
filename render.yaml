@@ -2,6 +2,7 @@ services:
   - type: web
     name: cti-kg-api
     runtime: docker
+    plan: 1c-2g
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
