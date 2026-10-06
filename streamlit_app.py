@@ -192,7 +192,7 @@ with col_graph:
     if st.button("Refresh Visualization", type="primary"):
         st.markdown('<div class="saas-card">', unsafe_allow_html=True)
         try:
-            with open("results/kg.json", "r", encoding="utf-8") as f:
+            with open("data/kg.json", "r", encoding="utf-8") as f:
                 kg_data = json.load(f)
             G = nx.node_link_graph(kg_data, edges="links")
             
