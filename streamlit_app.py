@@ -192,8 +192,9 @@ with col_graph:
     if st.button("Refresh Visualization", type="primary"):
         st.markdown('<div class="saas-card">', unsafe_allow_html=True)
         try:
-            with open("data/kg.json", "r", encoding="utf-8") as f:
-                kg_data = json.load(f)
+            graph_resp = requests.get(f"{API_URL}/graph/data", timeout=10)
+            graph_resp.raise_for_status()
+            kg_data = graph_resp.json()
             G = nx.node_link_graph(kg_data, edges="links")
             
             fig, ax = plt.subplots(figsize=(10, 8))
@@ -248,6 +249,6 @@ with col_graph:
                 st.markdown('</div>', unsafe_allow_html=True)
                 
         except FileNotFoundError:
-            st.info("Graph is empty. Run the extraction pipeline first to generate `results/kg.json`.")
+            st.info("Graph is empty. Run the extraction pipeline first.")
         except Exception as e:
             st.error(f"Failed to render graph: {e}")
