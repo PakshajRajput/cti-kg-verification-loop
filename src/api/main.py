@@ -249,6 +249,14 @@ async def graph_stats() -> GraphStatsResponse:
     return GraphStatsResponse(**stats)
 
 
+@app.get("/graph/data", tags=["Knowledge Graph"])
+async def graph_data() -> dict:
+    """Return the current knowledge graph in node-link JSON format."""
+    if not _state.kg_writer:
+        raise HTTPException(status_code=503, detail="Graph not connected.")
+    return _state.kg_writer.get_graph_data()
+
+
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health() -> HealthResponse:
     """Check the status of all pipeline components."""
