@@ -65,6 +65,10 @@ class NetworkXWriter:
                 confidence=t.confidence,
             )
 
+    def get_graph_data(self) -> dict[str, Any]:
+        """Return the graph in NetworkX node-link JSON format."""
+        return nx.node_link_data(self.graph, edges="links")
+
     def get_stats(self) -> dict[str, int]:
         """Return basic graph statistics."""
         return {
