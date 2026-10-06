@@ -51,7 +51,7 @@ console = Console()
 DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 RERANKER_MODEL = os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
+LLM_MODEL = os.environ.get("LLM_MODEL", os.environ.get("PRIMARY_MODEL", "openai/gpt-oss-120b"))
 
 
 # ─── Global State (loaded at startup) ─────────────────────────────────────────
