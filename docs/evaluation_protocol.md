@@ -13,11 +13,7 @@ The legacy `hallucination_rate` field remains for compatibility. New analysis sh
 
 The evaluator requires at least 10 annotated reports by default and raises an error rather than silently mixing synthetic examples into the research dataset. `--allow-synthetic-data` explicitly permits synthetic supplementation for demonstration/debugging only. Do not use results from that mode as benchmark evidence.
 
-The results JSON records:
-- model name and condition;
-- whether synthetic supplementation was allowed;
-- the report IDs evaluated;
-- elapsed runtime.
+The results JSON records the model/configuration, split seed and fraction, report IDs, elapsed runtime, and hashes of the dataset content, source prompts, and key implementation files. The sibling `experiment_manifest.json` includes train/test report IDs, a dataset fingerprint (hash only; report text is not copied), prompt hashes, implementation hashes, Python version, and configured model identifiers. Save this manifest with the aggregate results and `per_report_audit.jsonl` for every experiment. The CLI accepts `--seed` and `--test-split` to reproduce the split.
 
 For reproducibility, archive the exact dataset version/hash, ATT&CK/STIX snapshot, environment/dependency lock, model and embedding model identifiers, prompt versions, seed/split, and raw per-report predictions. Do not publish only aggregate metrics.
 
@@ -34,4 +30,5 @@ For reproducibility, archive the exact dataset version/hash, ATT&CK/STIX snapsho
 
 - The legacy result model includes `hallucination_rate`; it is retained as a compatibility alias for rejection rate.
 - The audit JSONL captures model-level verifier decisions and ATT&CK context IDs, not the full retrieved documents or complete source report text.
-- The connector can trigger CI but cannot run the whole project environment directly; review the GitHub Actions result and also run an end-to-end smoke test with the intended dataset, ATT&CK index, and model credentials before treating metrics as final.
+- Extractor and verifier API failures now fail the report/evaluation instead of being counted as empty predictions or valid verdicts. Review the resulting error record before rerunning.
+- The connector can trigger CI but cannot execute the full project environment with real dataset/index/model credentials; run an end-to-end smoke test before treating metrics as final.
