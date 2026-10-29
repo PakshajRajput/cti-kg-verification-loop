@@ -54,3 +54,29 @@ def test_rejection_rate_is_not_mislabeled_by_helper_semantics():
 
 def test_rejection_rate_handles_zero_extractions():
     assert compute_rejection_rate([], 0) == 0.0
+
+
+def test_rejection_rate_is_not_applicable_when_verifier_did_not_run():
+    predicted = {"report-a": [triplet("APT29", "uses", "ToolX")]}
+    gold = {"report-a": [triplet("APT29", "uses", "ToolX")]}
+
+    result = evaluate_pipeline_run("baseline", predicted, gold)
+
+    assert result.rejection_rate is None
+    assert result.hallucination_rate is None
+
+
+def test_rejection_rate_is_zero_when_verifier_ran_and_rejected_nothing():
+    predicted = {"report-a": [triplet("APT29", "uses", "ToolX")]}
+    gold = {"report-a": [triplet("APT29", "uses", "ToolX")]}
+
+    result = evaluate_pipeline_run(
+        "full_pipeline",
+        predicted,
+        gold,
+        rejected_by_report={"report-a": []},
+        extracted_counts_by_report={"report-a": 1},
+    )
+
+    assert result.rejection_rate == 0.0
+    assert result.hallucination_rate == 0.0
