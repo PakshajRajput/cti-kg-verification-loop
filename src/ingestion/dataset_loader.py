@@ -259,6 +259,7 @@ def load_ctinexus_dataset(
     test_split: float = 0.2,
     seed: int = 42,
     force_synthetic: bool = False,
+    allow_synthetic: bool = False,
 ) -> tuple[list[CTIReport], list[CTIReport]]:
     """
     Load CTINexus dataset. Returns (train_reports, test_reports).
@@ -267,7 +268,9 @@ def load_ctinexus_dataset(
         data_dir: Root data directory.
         test_split: Fraction of data held out for evaluation.
         seed: Random seed for reproducible splits.
-        force_synthetic: Use synthetic data even if real data exists.
+        force_synthetic: Explicitly use synthetic data even if real data exists.
+        allow_synthetic: Allow synthetic supplementation if fewer than 10 real
+            reports are available. Keep False for research evaluation.
     """
     processed_path = data_dir / "processed" / "reports.jsonl"
     processed_path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,8 +313,20 @@ def load_ctinexus_dataset(
             except Exception as e:
                 console.print(f"[yellow]Skipping {fp.name}: {e}[/yellow]")
 
-    if len(reports) < 10:
-        console.print(f"[yellow]Only {len(reports)} real reports found. Supplementing with synthetic data.[/yellow]")
+    if force_synthetic:
+        reports = _create_synthetic_reports(30)
+    elif len(reports) < 10:
+        if not allow_synthetic:
+            raise RuntimeError(
+                f"Only {len(reports)} annotated reports were loaded from CTINexus. "
+                "Refusing to mix synthetic examples into the research dataset. "
+                "Check the dataset download/path or explicitly pass allow_synthetic=True "
+                "for a demo-only run."
+            )
+        console.print(
+            f"[yellow]Only {len(reports)} real reports found. "
+            "Supplementing with synthetic demo data; do not use these results as research evidence.[/yellow]"
+        )
         synthetic = _create_synthetic_reports(max(30, 150 - len(reports)))
         reports = reports + synthetic
 
