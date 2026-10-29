@@ -24,7 +24,7 @@ import numpy as np
 from rich.console import Console
 from sentence_transformers import SentenceTransformer
 
-from src.agents.llm_client import call_llm
+from src.agents.llm_client import PRIMARY_MODEL, call_llm
 
 from src.ingestion.models import EntityType, PipelineState, Triplet
 
@@ -93,7 +93,7 @@ class CanonicalizerAgent:
 
     def __init__(
         self,
-        model: str = "gpt-4o",
+        model: str = PRIMARY_MODEL,
         embedding_model: str = "all-MiniLM-L6-v2",
         similarity_threshold: float = 0.85,
     ):
@@ -117,6 +117,7 @@ class CanonicalizerAgent:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=64,
+                model=self.model,
             )
             choice = resp.strip().strip('"')
             return choice if choice in cluster else _select_canonical(cluster)
