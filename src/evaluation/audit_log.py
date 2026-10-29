@@ -80,6 +80,8 @@ def build_experiment_manifest(
         "data_models": project_root / "src/ingestion/models.py",
         "pipeline_runner": project_root / "src/pipeline/runner.py",
         "pipeline_graph": project_root / "src/pipeline/graph.py",
+        "verification_state": project_root / "src/pipeline/verification_state.py",
+        "verification_response_parser": project_root / "src/pipeline/verification_response.py",
         "canonicalizer": project_root / "src/agents/canonicalizer.py",
         "verifier": project_root / "src/agents/verifier.py",
         "extractor": project_root / "src/agents/extractor.py",
