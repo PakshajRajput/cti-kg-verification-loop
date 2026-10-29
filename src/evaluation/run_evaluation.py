@@ -5,13 +5,8 @@ Runs the CTI extraction pipeline in two conditions:
   (a) baseline — Extractor + Canonicalizer only (no verifier)
   (b) full pipeline — Extractor + Canonicalizer + Verifier
 
-Computes P/R/F1 for both conditions on the held-out test split
-and saves results to results/evaluation_results.json.
-
-Usage:
-    python -m src.evaluation.run_evaluation --subset 20 --condition both
-    python -m src.evaluation.run_evaluation --subset 20 --condition baseline
-    python -m src.evaluation.run_evaluation --subset 20 --condition full
+Writes aggregate metrics to evaluation_results.json and a per-report JSONL
+audit record to per_report_audit.jsonl for every report/condition run.
 """
 from __future__ import annotations
 
@@ -20,17 +15,17 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import typer
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-# Ensure project root is on path when run as module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 load_dotenv()
 
+from src.evaluation.audit_log import build_audit_record, write_jsonl_record
 from src.evaluation.evaluator import evaluate_pipeline_run
 from src.ingestion.dataset_loader import load_ctinexus_dataset
 from src.ingestion.models import CTIReport, PipelineResult
@@ -45,14 +40,11 @@ def _run_condition(
     runner: PipelineRunner,
     test_reports: list[CTIReport],
     condition: str,
+    audit_path: Path | None = None,
+    model: str | None = None,
+    dataset_mode: str = "unknown",
 ) -> tuple[dict, dict, dict, dict]:
-    """
-    Run the pipeline on all test reports for one condition.
-
-    Returns:
-        predicted_by_report, ground_truth_by_report,
-        rejected_by_report, extracted_counts_by_report
-    """
+    """Run one condition, emitting a JSONL audit record for each completed report."""
     predicted_by_report = {}
     ground_truth_by_report = {}
     rejected_by_report = {}
@@ -60,21 +52,30 @@ def _run_condition(
 
     for i, report in enumerate(test_reports):
         console.print(f"\n[cyan]  [{i+1}/{len(test_reports)}] Report: {report.id}[/cyan]")
-
         result: PipelineResult = runner.run(report)
+
+        # Persist an error record too so a failed experiment is not silently lost.
+        if audit_path is not None:
+            record = build_audit_record(
+                report=report,
+                result=result,
+                condition=condition,
+                model=model or getattr(getattr(runner, "config", None), "model", "unknown"),
+                dataset_mode=dataset_mode,
+            )
+            write_jsonl_record(audit_path, record)
+
         if result.error:
-            # A failed report must not silently become an empty prediction set:
-            # that would contaminate aggregate research metrics.
             raise RuntimeError(
-                f"Pipeline failed for report {report.id!r} during {condition}: {result.error}"
+                f"Pipeline failed for report {report.id!r} during {condition}: {result.error}. "
+                f"See audit record at {audit_path if audit_path else 'not configured'}."
             )
 
         predicted_by_report[report.id] = result.final_triplets
         ground_truth_by_report[report.id] = report.ground_truth_triplets
         rejected_by_report[report.id] = result.rejected_triplets
-        # Total extracted before verification = final + rejected
         extracted_counts_by_report[report.id] = (
-            len(result.final_triplets) + len(result.rejected_triplets)
+            result.total_raw_triplets or len(result.final_triplets) + len(result.rejected_triplets)
         )
 
         console.print(
@@ -83,12 +84,7 @@ def _run_condition(
             f"{len(report.ground_truth_triplets)} GT[/green]"
         )
 
-    return (
-        predicted_by_report,
-        ground_truth_by_report,
-        rejected_by_report,
-        extracted_counts_by_report,
-    )
+    return predicted_by_report, ground_truth_by_report, rejected_by_report, extracted_counts_by_report
 
 
 @app.command()
@@ -102,7 +98,7 @@ def main(
         False, help="Allow synthetic supplementation for demo only; never use for reported research results"
     ),
 ):
-    """Evaluate the CTI extraction pipeline and save P/R/F1 results."""
+    """Evaluate the CTI extraction pipeline and save metrics plus per-report audit records."""
     data_path = Path(data_dir)
     results_path = Path(results_dir)
     results_path.mkdir(parents=True, exist_ok=True)
@@ -114,17 +110,27 @@ def main(
     console.rule("[bold cyan]CTI Pipeline Evaluation")
     console.print(f"  Model: {llm_model} | Subset: {subset if subset > 0 else 'all'} | Condition: {condition}")
 
-    # ── Load dataset ──────────────────────────────────────────────────────────
-    console.rule("[cyan]Loading Dataset")
+    if condition not in {"baseline", "full", "both"}:
+        raise typer.BadParameter("condition must be one of: baseline, full, both")
+
     train_reports, test_reports = load_ctinexus_dataset(
         data_path, allow_synthetic=allow_synthetic_data
     )
-
     if subset > 0:
         test_reports = test_reports[:subset]
     console.print(f"[green]Evaluating on {len(test_reports)} test reports.[/green]")
 
-    # ── Build retriever (needed for full pipeline) ─────────────────────────────
+    all_dataset_reports = train_reports + test_reports
+    synthetic_report_ids = sorted(
+        report.id for report in all_dataset_reports if report.id.startswith("synthetic_")
+    )
+    dataset_mode = "synthetic_demo" if synthetic_report_ids else "real_data"
+
+    # Start a clean audit file per experiment invocation, avoiding stale mixed runs.
+    audit_path = results_path / "per_report_audit.jsonl"
+    if audit_path.exists():
+        audit_path.unlink()
+
     retriever = None
     if condition in ("full", "both"):
         console.rule("[cyan]Loading RAG Retriever")
@@ -137,75 +143,63 @@ def main(
     all_results = []
     start_time = time.time()
 
-    # ── Baseline condition ────────────────────────────────────────────────────
     if condition in ("baseline", "both"):
         console.rule("[bold yellow]Running BASELINE Condition (no verifier)")
-
-        baseline_config = PipelineConfig(
-            model=llm_model,
-            embedding_model=embedding_model,
-            skip_verifier=True,
-            data_dir=data_path,
+        baseline_runner = PipelineRunner.build(
+            PipelineConfig(
+                model=llm_model, embedding_model=embedding_model,
+                skip_verifier=True, data_dir=data_path,
+            ),
+            train_reports,
         )
-        baseline_runner = PipelineRunner.build(baseline_config, train_reports)
-
-        pred, gt, rej, cnt = _run_condition(baseline_runner, test_reports, "baseline")
-        baseline_metrics = evaluate_pipeline_run("baseline", pred, gt)
+        pred, gt, rej, cnt = _run_condition(
+            baseline_runner, test_reports, "baseline", audit_path, llm_model, dataset_mode
+        )
+        baseline_metrics = evaluate_pipeline_run("baseline", pred, gt, extracted_counts_by_report=cnt)
         all_results.append(baseline_metrics.model_dump())
         console.print(f"[green]Baseline F1: {baseline_metrics.f1:.4f}[/green]")
 
-    # ── Full pipeline condition ───────────────────────────────────────────────
     if condition in ("full", "both"):
         console.rule("[bold green]Running FULL PIPELINE Condition (with verifier)")
-
-        full_config = PipelineConfig(
-            model=llm_model,
-            embedding_model=embedding_model,
-            reranker_model=reranker_model,
-            skip_verifier=False,
-            data_dir=data_path,
+        full_runner = PipelineRunner.build(
+            PipelineConfig(
+                model=llm_model, embedding_model=embedding_model,
+                reranker_model=reranker_model, skip_verifier=False, data_dir=data_path,
+            ),
+            train_reports, retriever=retriever,
         )
-        full_runner = PipelineRunner.build(full_config, train_reports, retriever=retriever)
-
-        pred, gt, rej, cnt = _run_condition(full_runner, test_reports, "full_pipeline")
+        pred, gt, rej, cnt = _run_condition(
+            full_runner, test_reports, "full_pipeline", audit_path, llm_model, dataset_mode
+        )
         full_metrics = evaluate_pipeline_run(
-            "full_pipeline", pred, gt,
-            rejected_by_report=rej,
-            extracted_counts_by_report=cnt,
+            "full_pipeline", pred, gt, rejected_by_report=rej, extracted_counts_by_report=cnt
         )
         all_results.append(full_metrics.model_dump())
         console.print(f"[green]Full Pipeline F1: {full_metrics.f1:.4f}[/green]")
 
     elapsed = time.time() - start_time
-
-    # ── Save results ──────────────────────────────────────────────────────────
-    all_dataset_reports = train_reports + test_reports
-    synthetic_report_ids = sorted(
-        report.id for report in all_dataset_reports if report.id.startswith("synthetic_")
-    )
-    real_report_count = len(all_dataset_reports) - len(synthetic_report_ids)
     output = {
         "results": all_results,
         "metadata": {
             "model": llm_model,
             "num_test_reports": len(test_reports),
             "condition": condition,
-            "dataset_mode": "synthetic_demo" if synthetic_report_ids else "real_data",
+            "dataset_mode": dataset_mode,
             "allow_synthetic_data": allow_synthetic_data,
-            "real_report_count": real_report_count,
+            "real_report_count": len(all_dataset_reports) - len(synthetic_report_ids),
             "synthetic_report_count": len(synthetic_report_ids),
             "synthetic_report_ids": synthetic_report_ids,
             "test_report_ids": [report.id for report in test_reports],
             "elapsed_seconds": round(elapsed, 1),
+            "per_report_audit_file": str(audit_path),
         },
     }
     output_path = results_path / "evaluation_results.json"
-    with open(output_path, "w") as f:
+    with output_path.open("w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
     console.print(f"\n[green]Results saved to {output_path}[/green]")
+    console.print(f"[green]Per-report audit saved to {audit_path}[/green]")
 
-    # ── Print summary table ───────────────────────────────────────────────────
-    console.rule("[bold]Results Summary")
     table = Table(title="CTI Extraction Evaluation")
     table.add_column("Condition", style="cyan")
     table.add_column("Precision", style="green")
@@ -214,18 +208,13 @@ def main(
     table.add_column("Entity F1", style="yellow")
     table.add_column("Reject Rate", style="red")
     table.add_column("Reports", style="dim")
-
     for r in all_results:
         table.add_row(
-            r["condition"],
-            f"{r['precision']:.4f}",
-            f"{r['recall']:.4f}",
-            f"{r['f1']:.4f}",
-            f"{r['entity_f1']:.4f}",
-            f"{r.get('rejection_rate', r['hallucination_rate']):.4f}",
+            r["condition"], f"{r['precision']:.4f}", f"{r['recall']:.4f}",
+            f"{r['f1']:.4f}", f"{r['entity_f1']:.4f}",
+            f"{r.get('rejection_rate', r.get('hallucination_rate', 0.0)):.4f}",
             str(r["num_reports"]),
         )
-
     console.print(table)
     console.print(f"\n[dim]Elapsed: {elapsed:.1f}s[/dim]")
 
