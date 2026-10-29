@@ -21,7 +21,11 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def validate_research_inputs(data_dir: Path = Path("data")) -> dict[str, int]:
+def validate_research_inputs(
+    data_dir: Path = Path("data"),
+    *,
+    check_chroma_collection: bool = True,
+) -> dict[str, int]:
     reports_path = data_dir / "processed" / "reports.jsonl"
     entries_path = data_dir / "mitre" / "entries.jsonl"
     corpus_path = data_dir / "mitre" / "bm25_corpus.jsonl"
@@ -63,6 +67,22 @@ def validate_research_inputs(data_dir: Path = Path("data")) -> dict[str, int]:
     if not chroma_path.is_file():
         raise RuntimeError(f"ChromaDB persistence file is missing: {chroma_path}")
 
+    chroma_count = None
+    if check_chroma_collection:
+        try:
+            import chromadb
+
+            client = chromadb.PersistentClient(path=str(data_dir / "chroma"))
+            collection = client.get_collection(name="attack_entries")
+            chroma_count = collection.count()
+        except Exception as error:
+            raise RuntimeError(f"Unable to validate the persisted ChromaDB collection: {error}") from error
+        if chroma_count < 100 or chroma_count != len(entries):
+            raise RuntimeError(
+                f"ChromaDB index mismatch: vectors={chroma_count}, normalized ATT&CK entries={len(entries)}. "
+                "Rebuild the dense index from the same ATT&CK snapshot."
+            )
+
     if len(corpus) != len(entries):
         raise RuntimeError(
             f"ATT&CK index mismatch: normalized entries={len(entries)}, BM25 corpus={len(corpus)}. "
@@ -76,6 +96,7 @@ def validate_research_inputs(data_dir: Path = Path("data")) -> dict[str, int]:
         "ground_truth_triplets": report_triplets,
         "attack_entries": len(entries),
         "bm25_entries": len(corpus),
+        "chroma_vectors": chroma_count if chroma_count is not None else -1,
     }
     print("Research input validation passed:")
     for key, value in result.items():
