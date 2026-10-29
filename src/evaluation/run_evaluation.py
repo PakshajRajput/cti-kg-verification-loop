@@ -162,6 +162,7 @@ def main(
         subset=subset,
         train_reports=train_reports,
         test_reports=test_reports,
+        full_test_split_reports=all_test_reports,
         dataset_mode=dataset_mode,
         allow_synthetic_data=allow_synthetic_data,
         project_root=Path(__file__).resolve().parents[2],
