@@ -407,6 +407,7 @@ def make_extractor_node(agent: ExtractorAgent):
         report = pipeline_state.report
         triplets = agent.extract(report, feedback=pipeline_state.reextraction_feedback)
         pipeline_state.raw_triplets = triplets
+        pipeline_state.raw_triplets_by_iteration.append(triplets)
         pipeline_state.total_raw_triplets_all_iterations += len(triplets)
         pipeline_state.iteration += 1
         return pipeline_state.model_dump()
