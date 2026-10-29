@@ -2,9 +2,13 @@
 
 > **"Verification-in-the-Loop: Reducing Hallucination in LLM-Based Cyber Threat Intelligence Knowledge Graph Construction"**
 
-A research pipeline that extracts entity-relation triplets from CTI reports using few-shot LLM prompting, verifies them against MITRE ATT&CK via hybrid RAG + cross-encoder reranking, and stores verified triplets in a Neo4j knowledge graph. Measures hallucination reduction vs. extraction-only baseline.
+A research pipeline that extracts entity-relation triplets from CTI reports using few-shot LLM prompting, verifies them against MITRE ATT&CK via hybrid RAG + cross-encoder reranking, and stores verified triplets in a Neo4j knowledge graph. Compares extraction quality and verifier behavior against an extraction-only baseline. Verifier rejection is not a validated hallucination rate; claims of hallucination reduction require independent adjudication on held-out reports.
 
 ---
+
+## Research validity notice
+
+Research benchmarks must use unique reports from the CTINexus annotation directory. The loader rejects ambiguous annotation paths and removes exact text duplicates only when annotations match. Few-shot retrieval excludes the query report, test-labeled demonstrations and exact text clones. See `docs/evaluation_protocol.md` before interpreting benchmark metrics.
 
 ## Architecture
 
@@ -119,6 +123,8 @@ python -m src.evaluation.run_evaluation --subset 20 --condition both
 
 Results saved to `results/evaluation_results.json`. Plots saved to `results/figures/`.
 
+**Research evaluation note:** the loader now refuses to silently mix synthetic examples into the real dataset when fewer than 10 annotated reports are found. For a demo-only run, explicitly opt in with `--allow-synthetic-data`; never report those mixed-data results as benchmark results. The JSON output records the selected dataset mode and evaluated report IDs. See [the evaluation protocol](docs/evaluation_protocol.md).
+
 ### 7. Start the API Server
 
 ```bash
@@ -172,7 +178,7 @@ curl -X POST http://localhost:8000/extract \
 | Triplet Precision | Fraction of predicted triplets matching ground truth |
 | Triplet Recall | Fraction of ground-truth triplets recovered |
 | Triplet F1 | Harmonic mean of Precision and Recall |
-| Hallucination Rate | Fraction of predicted triplets rejected by verifier |
+| Verifier Rejection Rate | Fraction of triplets rejected in the final verifier pass; not ground-truth-confirmed hallucination rate (N/A for baseline) |
 
 ---
 

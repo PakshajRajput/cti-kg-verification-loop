@@ -21,7 +21,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from src.agents.llm_client import call_llm
+from src.agents.llm_client import PRIMARY_MODEL, call_llm
 
 from src.ingestion.models import (
     EntityType,
@@ -30,7 +30,14 @@ from src.ingestion.models import (
     VerificationDecision,
     VerificationVerdict,
 )
-from src.rag.hybrid_retriever import HybridRetriever
+from typing import Any
+
+from src.pipeline.verification_response import parse_verification_response as _parse_verification_response
+from src.pipeline.verification_state import apply_verification_outputs
+try:
+    from src.rag.hybrid_retriever import HybridRetriever
+except ImportError:
+    HybridRetriever = Any  # type: ignore
 
 console = Console()
 
@@ -58,51 +65,6 @@ def _format_context(retrieved: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def _parse_verification_response(raw: str) -> dict:
-    """Parse verifier LLM JSON output. Robust to markdown fences and truncation."""
-    raw = re.sub(r"```(?:json)?", "", raw).strip()
-    
-    # Try standard JSON parse first
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
-            
-    # Fallback: manually extract fields using regex if JSON is malformed or truncated
-    lower_raw = raw.lower()
-    
-    # Extract verdict
-    verdict_match = re.search(r'"verdict"\s*:\s*"([^"]+)"', raw, re.IGNORECASE)
-    if verdict_match:
-        verdict = verdict_match.group(1).lower()
-        if verdict not in ["valid", "corrected", "hallucinated"]:
-            verdict = "valid"
-    else:
-        # Fallback to keyword matching
-        if "hallucinated" in lower_raw or "invalid" in lower_raw or "rejected" in lower_raw:
-            verdict = "hallucinated"
-        elif "corrected" in lower_raw:
-            verdict = "hallucinated" # Safer fallback if we can't parse the corrected triplet
-        else:
-            verdict = "valid"
-            
-    # Extract reasoning
-    reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', raw, re.IGNORECASE)
-    if reasoning_match:
-        reasoning = reasoning_match.group(1)
-    else:
-        # Just use the raw string (truncated if too long)
-        reasoning = raw[:200] + "..." if len(raw) > 200 else raw
-        
-    return {
-        "verdict": verdict,
-        "corrected_triplet": None,  # Difficult to parse reliably without valid JSON
-        "reasoning": f"(Recovered via fallback) {reasoning}"
-    }
-
-
 class VerifierAgent:
     """
     RAG-grounded verification agent.
@@ -113,7 +75,7 @@ class VerifierAgent:
     def __init__(
         self,
         retriever: HybridRetriever,
-        model: str = "gpt-4o",
+        model: str = PRIMARY_MODEL,
         rag_top_k: int = 5,
     ):
         self.retriever = retriever
@@ -121,14 +83,16 @@ class VerifierAgent:
         self.rag_top_k = rag_top_k
         self.system_prompt = _load_prompt(_SYSTEM_PROMPT_PATH)
 
-    def _call_llm(self, triplet: Triplet, context: str) -> str:
-        """Call verifier LLM for a single triplet."""
+    def _call_llm(self, triplet: Triplet, context: str, report_text: str = "") -> str:
+        """Call verifier LLM for a single triplet, grounded in source report text and ATT&CK."""
+        report_section = f"## Original CTI Report Excerpt\n{report_text[:1500]}\n\n" if report_text else ""
         user_message = (
             f"## Triplet to Verify\n"
             f"- **Entity 1**: {triplet.entity1} (type: {triplet.entity1_type.value})\n"
             f"- **Relation**: {triplet.relation}\n"
             f"- **Entity 2**: {triplet.entity2} (type: {triplet.entity2_type.value})\n"
             f"- **Extraction Confidence**: {triplet.confidence:.2f}\n\n"
+            f"{report_section}"
             f"## Relevant MITRE ATT&CK Context\n{context}\n\n"
             f"Verify this triplet and return your verdict as JSON."
         )
@@ -138,7 +102,8 @@ class VerifierAgent:
                 {"role": "user", "content": user_message},
             ],
             temperature=0.0,
-            max_tokens=512,
+            max_tokens=1536,
+            model=self.model,
         )
 
     def _parse_corrected_triplet(self, data: dict | None) -> Triplet | None:
@@ -167,10 +132,10 @@ class VerifierAgent:
         )
 
     def verify_triplets(
-        self, triplets: list[Triplet]
+        self, triplets: list[Triplet], report_text: str = ""
     ) -> tuple[list[Triplet], list[Triplet], list[VerificationDecision], bool]:
         """
-        Verify a list of triplets.
+        Verify a list of triplets against source report text and ATT&CK context.
 
         Returns:
             verified_triplets: Triplets that are valid or corrected
@@ -195,21 +160,33 @@ class VerifierAgent:
             context = _format_context(retrieved)
             attack_ids = [r.get("attack_id", "") for r in retrieved if r.get("attack_id")]
 
-            # LLM verification
+            # LLM verification grounded in report_text and ATT&CK
+            raw = None
             try:
-                raw = self._call_llm(triplet, context)
+                raw = self._call_llm(triplet, context, report_text=report_text)
                 parsed = _parse_verification_response(raw)
             except Exception as e:
-                console.print(f"[yellow]Verifier LLM failed for triplet '{triplet.to_text()}': {e}[/yellow]")
-                parsed = {"verdict": "valid", "corrected_triplet": None, "reasoning": f"LLM error: {e}"}
+                # Never convert infrastructure/LLM failures into a positive
+                # verification verdict; doing so would bias reported metrics.
+                raise RuntimeError(
+                    f"Verifier LLM failed for triplet {triplet.to_text()!r}: {e} (raw response: {raw!r})"
+                ) from e
 
-            verdict_str = parsed.get("verdict", "valid").lower()
+            verdict_str = str(parsed.get("verdict", "")).lower()
             try:
                 verdict = VerificationVerdict(verdict_str)
-            except ValueError:
-                verdict = VerificationVerdict.VALID
+            except ValueError as e:
+                raise RuntimeError(
+                    f"Verifier returned an unsupported verdict {verdict_str!r} "
+                    f"for triplet {triplet.to_text()!r}"
+                ) from e
 
             corrected = self._parse_corrected_triplet(parsed.get("corrected_triplet"))
+            if verdict == VerificationVerdict.CORRECTED and corrected is None:
+                raise RuntimeError(
+                    f"Verifier declared a correction but supplied no valid corrected triplet "
+                    f"for {triplet.to_text()!r}"
+                )
             reasoning = str(parsed.get("reasoning", ""))
 
             decision = VerificationDecision(
@@ -285,17 +262,20 @@ def make_verifier_node(agent: VerifierAgent):
         pipeline_state.verifier_ran = True
 
         if not triplets:
+            apply_verification_outputs(pipeline_state, verified=[], rejected=[], decisions=[])
             pipeline_state.needs_reextraction = False
             return pipeline_state.model_dump()
 
-        verified, rejected, decisions, needs_reextraction = agent.verify_triplets(triplets)
-
-        pipeline_state.verified_triplets.extend(verified)
-        pipeline_state.rejected_triplets.extend(rejected)
-        pipeline_state.verification_decisions.extend(decisions)
-        
-        revised = [d.corrected_triplet for d in decisions if d.verdict == VerificationVerdict.CORRECTED and d.corrected_triplet]
-        pipeline_state.revised_triplets.extend(revised)
+        report_text = pipeline_state.report.text if pipeline_state.report else ""
+        verified, rejected, decisions, needs_reextraction = agent.verify_triplets(
+            triplets, report_text=report_text
+        )
+        apply_verification_outputs(
+            pipeline_state,
+            verified=verified,
+            rejected=rejected,
+            decisions=decisions,
+        )
 
         pipeline_state.needs_reextraction = (
             needs_reextraction and pipeline_state.iteration < 2

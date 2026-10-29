@@ -54,21 +54,21 @@ class Triplet(BaseModel):
 class CTIReport(BaseModel):
     """A single CTI report with optional ground-truth annotations."""
     id: str
-    source: str = ""          # e.g. "Trend Micro", "Symantec"
+    source: str = ""
     title: str = ""
     text: str
     ground_truth_entities: list[dict[str, Any]] = Field(default_factory=list)
     ground_truth_relations: list[dict[str, Any]] = Field(default_factory=list)
     ground_truth_triplets: list[Triplet] = Field(default_factory=list)
-    split: str = "train"      # "train" | "test"
+    split: str = "train"
 
 
 class ATT_CK_Entry(BaseModel):
     """A single MITRE ATT&CK object (technique, group, software, etc.)."""
-    id: str                   # e.g. "T1566", "G0016", "S0002"
+    id: str
     name: str
     description: str
-    type: str                 # "technique" | "group" | "software" | "mitigation" | "tactic"
+    type: str
     external_references: list[str] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
     platforms: list[str] = Field(default_factory=list)
@@ -83,7 +83,7 @@ class ATT_CK_Entry(BaseModel):
             parts.append(f"Tactics: {', '.join(self.tactics)}")
         if self.platforms:
             parts.append(f"Platforms: {', '.join(self.platforms)}")
-        parts.append(self.description[:1000])  # cap to avoid token bloat
+        parts.append(self.description[:1000])
         return "\n".join(parts)
 
 
@@ -99,21 +99,30 @@ class VerificationDecision(BaseModel):
     """Verifier agent's decision for a single triplet."""
     original_triplet: Triplet
     verdict: VerificationVerdict
+    iteration: int = 1
     corrected_triplet: Optional[Triplet] = None
     reasoning: str = ""
-    retrieved_context_ids: list[str] = Field(default_factory=list)  # ATT&CK IDs used
+    retrieved_context_ids: list[str] = Field(default_factory=list)
 
 
 class EvalMetrics(BaseModel):
     """Evaluation results for a single condition."""
-    condition: str            # "baseline" | "full_pipeline"
+    condition: str
     precision: float
     recall: float
     f1: float
     entity_precision: float = 0.0
     entity_recall: float = 0.0
     entity_f1: float = 0.0
-    hallucination_rate: float = 0.0
+    # Rejection is not confirmed hallucination; None means no verifier ran.
+    hallucination_rate: Optional[float] = None
+    rejection_rate: Optional[float] = None
+    macro_precision: float = 0.0
+    macro_recall: float = 0.0
+    macro_f1: float = 0.0
+    macro_entity_precision: float = 0.0
+    macro_entity_recall: float = 0.0
+    macro_entity_f1: float = 0.0
     total_extracted: int = 0
     total_verified: int = 0
     total_rejected: int = 0
@@ -126,8 +135,10 @@ class EvalMetrics(BaseModel):
 class PipelineState(BaseModel):
     """Mutable state passed between LangGraph nodes."""
     report: CTIReport
-    # Extractor outputs
+    # Extractor outputs. Keep the latest attempt as well as the total count.
     raw_triplets: list[Triplet] = Field(default_factory=list)
+    raw_triplets_by_iteration: list[list[Triplet]] = Field(default_factory=list)
+    canonical_triplets_by_iteration: list[list[Triplet]] = Field(default_factory=list)
     total_raw_triplets_all_iterations: int = 0
     # Canonicalizer outputs
     canonical_triplets: list[Triplet] = Field(default_factory=list)
@@ -155,11 +166,21 @@ class PipelineResult(BaseModel):
     verification_decisions: list[VerificationDecision]
     iterations: int
     total_raw_triplets: int = 0
+    raw_triplets: list[Triplet] = Field(default_factory=list)
+    raw_triplets_by_iteration: list[list[Triplet]] = Field(default_factory=list)
+    canonical_triplets_by_iteration: list[list[Triplet]] = Field(default_factory=list)
+    canonical_triplets: list[Triplet] = Field(default_factory=list)
+    verified_triplets: list[Triplet] = Field(default_factory=list)
     error: Optional[str] = None
 
     @property
-    def hallucination_rate(self) -> float:
-        total = len(self.final_triplets) + len(self.rejected_triplets)
+    def rejection_rate(self) -> float:
+        total = len(self.verified_triplets) + len(self.rejected_triplets)
         if total == 0:
             return 0.0
         return len(self.rejected_triplets) / total
+
+    @property
+    def hallucination_rate(self) -> float:
+        """Deprecated alias for rejection_rate; verifier rejection is not proven hallucination."""
+        return self.rejection_rate

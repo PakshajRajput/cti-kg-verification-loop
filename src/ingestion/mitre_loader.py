@@ -65,6 +65,7 @@ def _safe_description(obj: dict[str, Any]) -> str:
 def load_mitre_attack(
     data_dir: Path,
     force_download: bool = False,
+    allow_fallback: bool = False,
 ) -> list[ATT_CK_Entry]:
     """
     Load MITRE ATT&CK data. Downloads if not cached.
@@ -86,6 +87,12 @@ def load_mitre_attack(
                 line = line.strip()
                 if line:
                     entries.append(ATT_CK_Entry.model_validate_json(line))
+        if len(entries) < 100 and not allow_fallback:
+            raise RuntimeError(
+                f"Cached MITRE ATT&CK data at {entries_path} contains only {len(entries)} entries. "
+                "This appears to be minimal demo/fallback data; research evaluation requires the full enterprise ATT&CK dataset. "
+                "Rebuild the ATT&CK dataset from enterprise-attack.json."
+            )
         console.print(f"[green]Loaded {len(entries)} ATT&CK entries.[/green]")
         return entries
 
@@ -99,6 +106,12 @@ def load_mitre_attack(
                 f.write(resp.content)
             console.print(f"[green]Saved to {raw_path} ({raw_path.stat().st_size // 1024} KB)[/green]")
         except Exception as e:
+            if not allow_fallback:
+                raise RuntimeError(
+                    f"Download of MITRE ATT&CK STIX bundle failed: {e}. "
+                    "Refusing to generate fallback entries for research evaluation. "
+                    "Check network access or pass allow_fallback=True for demo runs."
+                ) from e
             console.print(f"[yellow]Download failed: {e}. Creating minimal fallback entries.[/yellow]")
             return _create_fallback_entries(entries_path)
 

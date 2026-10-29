@@ -9,7 +9,6 @@ which handles agent construction and dependency injection.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -19,39 +18,40 @@ from rich.console import Console
 from src.agents.canonicalizer import CanonicalizerAgent
 from src.agents.extractor import ExtractorAgent
 from src.agents.verifier import VerifierAgent
-from src.ingestion.models import CTIReport, PipelineResult, PipelineState, Triplet
+from src.agents.llm_client import PRIMARY_MODEL
+from src.ingestion.models import CTIReport, PipelineResult, PipelineState
 from src.pipeline.graph import build_pipeline_graph
 from src.rag.hybrid_retriever import HybridRetriever
 
-console = Console()
+import sys
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+console = Console(legacy_windows=False)
 
 
 @dataclass
 class PipelineConfig:
     """Configuration for the full pipeline."""
-    model: str = "gpt-4o"
+    model: str = PRIMARY_MODEL
     embedding_model: str = "all-MiniLM-L6-v2"
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     few_shot_k: int = 5
     rag_top_k: int = 5
     similarity_threshold: float = 0.85
-    skip_verifier: bool = False  # True = baseline condition
+    skip_verifier: bool = False
     data_dir: Path = field(default_factory=lambda: Path("data"))
 
 
 class PipelineRunner:
-    """
-    End-to-end pipeline runner.
+    """End-to-end pipeline runner; call build() once and run() per report."""
 
-    Encapsulates all agents and the compiled graph.
-    Use build() to construct from config, then call run() for each report.
-    """
-
-    def __init__(
-        self,
-        compiled_graph,
-        config: PipelineConfig,
-    ):
+    def __init__(self, compiled_graph, config: PipelineConfig):
         self.graph = compiled_graph
         self.config = config
 
@@ -62,26 +62,17 @@ class PipelineRunner:
         demonstrations: list[CTIReport],
         retriever: Optional[HybridRetriever] = None,
     ) -> "PipelineRunner":
-        """
-        Build a complete pipeline runner from config.
-
-        Args:
-            config: PipelineConfig with model and path settings.
-            demonstrations: Training reports used as few-shot examples by the extractor.
-            retriever: Pre-built HybridRetriever. Required unless skip_verifier=True.
-        """
+        """Build a configured runner from demonstrations and an optional retriever."""
         console.print(
             f"[cyan]Building pipeline: model={config.model}, "
             f"skip_verifier={config.skip_verifier}[/cyan]"
         )
-
         extractor = ExtractorAgent(
             demonstrations=demonstrations,
             model=config.model,
             embedding_model=config.embedding_model,
             few_shot_k=config.few_shot_k,
         )
-
         canonicalizer = CanonicalizerAgent(
             model=config.model,
             embedding_model=config.embedding_model,
@@ -104,29 +95,17 @@ class PipelineRunner:
             verifier=verifier,
             skip_verifier=config.skip_verifier,
         )
-
         return cls(graph, config)
 
     def run(self, report: CTIReport) -> PipelineResult:
-        """
-        Run the pipeline on a single CTI report.
-
-        Args:
-            report: The CTI report to process.
-
-        Returns:
-            PipelineResult with final verified triplets and metadata.
-        """
-        console.print(f"\n[bold cyan]─── Processing Report: {report.id} ───[/bold cyan]")
-
-        # Build initial state
+        """Run pipeline for a report and return an auditable structured result."""
+        console.print(f"\n[bold cyan]--- Processing Report: {report.id} ---[/bold cyan]")
         initial_state = PipelineState(report=report)
         initial_state_dict = initial_state.model_dump()
 
         try:
             final_state_dict = self.graph.invoke(initial_state_dict)
             final_state = PipelineState.model_validate(final_state_dict)
-
             return PipelineResult(
                 report_id=report.id,
                 final_triplets=final_state.final_triplets,
@@ -135,9 +114,13 @@ class PipelineRunner:
                 verification_decisions=final_state.verification_decisions,
                 iterations=final_state.iteration,
                 total_raw_triplets=final_state.total_raw_triplets_all_iterations,
+                raw_triplets=final_state.raw_triplets,
+                raw_triplets_by_iteration=final_state.raw_triplets_by_iteration,
+                canonical_triplets_by_iteration=final_state.canonical_triplets_by_iteration,
+                canonical_triplets=final_state.canonical_triplets,
+                verified_triplets=final_state.verified_triplets,
                 error=final_state.error,
             )
-
         except Exception as e:
             console.print(f"[red]Pipeline error for report {report.id}: {e}[/red]")
             return PipelineResult(

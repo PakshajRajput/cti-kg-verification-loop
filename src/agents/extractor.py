@@ -15,9 +15,12 @@ from typing import Any
 
 import numpy as np
 from rich.console import Console
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = Any  # type: ignore
 
-from src.agents.llm_client import call_llm_json
+from src.agents.llm_client import PRIMARY_MODEL, call_llm_json
 
 from src.ingestion.models import CTIReport, EntityType, PipelineState, Triplet
 
@@ -36,24 +39,45 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10))
 
 
+def _normalize_text(s: str) -> str:
+    """Normalize text by trimming, lowercasing, and collapsing whitespace."""
+    if not s:
+        return ""
+    return " ".join(s.strip().casefold().split())
+
+
 def _retrieve_demonstrations(
     report: CTIReport,
     demos: list[CTIReport],
     embedder: SentenceTransformer,
     k: int = 5,
 ) -> list[CTIReport]:
-    """Retrieve the k most similar demonstration reports by text embedding."""
+    """Retrieve the k most similar demonstration reports by text embedding.
+
+    Strictly filters out the query report itself, any report with duplicate text,
+    and any held-out test split reports to prevent few-shot data leakage.
+    """
     if not demos:
         return []
 
+    report_norm = _normalize_text(report.text)
+    candidates = [
+        d for d in demos
+        if d.id != report.id
+        and getattr(d, "split", None) != "test"
+        and _normalize_text(d.text) != report_norm
+    ]
+    if not candidates:
+        return []
+
     query_emb = embedder.encode([report.text], normalize_embeddings=True)[0]
-    demo_texts = [d.text for d in demos]
+    demo_texts = [d.text for d in candidates]
     demo_embs = embedder.encode(demo_texts, normalize_embeddings=True)
 
     sims = [_cosine_similarity(query_emb, de) for de in demo_embs]
     top_indices = sorted(range(len(sims)), key=lambda i: sims[i], reverse=True)[:k]
 
-    return [demos[i] for i in top_indices]
+    return [candidates[i] for i in top_indices]
 
 
 def _format_demonstrations(demos: list[CTIReport], max_triplets_per_demo: int = 6) -> str:
@@ -294,7 +318,7 @@ class ExtractorAgent:
     def __init__(
         self,
         demonstrations: list[CTIReport],
-        model: str = "gpt-4o",
+        model: str = PRIMARY_MODEL,
         embedding_model: str = "all-MiniLM-L6-v2",
         few_shot_k: int = 5,
         max_report_chars: int = 2500,
@@ -316,6 +340,7 @@ class ExtractorAgent:
             ],
             temperature=0.0,
             max_tokens=2048,
+            model=self.model,
         )
 
     def extract(self, report: CTIReport, feedback: str = "") -> list[Triplet]:
@@ -358,13 +383,20 @@ class ExtractorAgent:
 
         try:
             data, recovery_method, _ = self._call_llm(user_message)
-            if data is None:
-                data = []
         except Exception as e:
+            # Fail the report instead of converting an unavailable LLM into
+            # an apparently valid empty extraction result.
             console.print(f"[red]Extractor LLM call failed: {e}[/red]")
-            data = []
-            recovery_method = "failed_exception"
-            
+            raise RuntimeError(
+                f"Extractor LLM failed for report {report.id!r}: {e}"
+            ) from e
+
+        if data is None or recovery_method == "failed":
+            raise RuntimeError(
+                f"Extractor returned no parseable JSON for report {report.id!r} "
+                f"(recovery_method={recovery_method!r})"
+            )
+
         elapsed = time.time() - start_time
         
         triplets = _parse_triplets(data)
@@ -407,6 +439,7 @@ def make_extractor_node(agent: ExtractorAgent):
         report = pipeline_state.report
         triplets = agent.extract(report, feedback=pipeline_state.reextraction_feedback)
         pipeline_state.raw_triplets = triplets
+        pipeline_state.raw_triplets_by_iteration.append(triplets)
         pipeline_state.total_raw_triplets_all_iterations += len(triplets)
         pipeline_state.iteration += 1
         return pipeline_state.model_dump()

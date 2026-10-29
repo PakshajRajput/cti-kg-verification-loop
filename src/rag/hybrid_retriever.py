@@ -17,12 +17,26 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from typing import Any
+
 from rich.console import Console
-from sentence_transformers import CrossEncoder
+
+try:
+    from sentence_transformers import CrossEncoder
+except ImportError:
+    CrossEncoder = None  # type: ignore
 
 from src.ingestion.models import ATT_CK_Entry
-from src.rag.bm25_index import ATTACKBm25Index
-from src.rag.vector_store import ATTACKVectorStore
+
+try:
+    from src.rag.bm25_index import ATTACKBm25Index
+except ImportError:
+    ATTACKBm25Index = Any  # type: ignore
+
+try:
+    from src.rag.vector_store import ATTACKVectorStore
+except ImportError:
+    ATTACKVectorStore = Any  # type: ignore
 
 console = Console()
 

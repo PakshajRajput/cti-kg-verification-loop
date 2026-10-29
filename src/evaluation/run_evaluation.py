@@ -5,13 +5,8 @@ Runs the CTI extraction pipeline in two conditions:
   (a) baseline — Extractor + Canonicalizer only (no verifier)
   (b) full pipeline — Extractor + Canonicalizer + Verifier
 
-Computes P/R/F1 for both conditions on the held-out test split
-and saves results to results/evaluation_results.json.
-
-Usage:
-    python -m src.evaluation.run_evaluation --subset 20 --condition both
-    python -m src.evaluation.run_evaluation --subset 20 --condition baseline
-    python -m src.evaluation.run_evaluation --subset 20 --condition full
+Writes aggregate metrics to evaluation_results.json and a per-report JSONL
+audit record to per_report_audit.jsonl for every report/condition run.
 """
 from __future__ import annotations
 
@@ -19,6 +14,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
@@ -26,18 +22,40 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-# Ensure project root is on path when run as module
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 load_dotenv()
 
+from src.evaluation.audit_log import (
+    build_audit_record,
+    build_experiment_manifest,
+    write_json,
+    write_jsonl_record,
+)
 from src.evaluation.evaluator import evaluate_pipeline_run
 from src.ingestion.dataset_loader import load_ctinexus_dataset
-from src.ingestion.models import CTIReport, PipelineResult
-from src.pipeline.runner import PipelineConfig, PipelineRunner
-from src.rag.hybrid_retriever import HybridRetriever
+from typing import Any
 
-console = Console()
+from src.ingestion.models import CTIReport, PipelineResult
+
+try:
+    from src.pipeline.runner import PipelineConfig, PipelineRunner
+except ImportError:
+    PipelineConfig = Any  # type: ignore
+    PipelineRunner = Any  # type: ignore
+
+try:
+    from src.rag.hybrid_retriever import HybridRetriever
+except ImportError:
+    HybridRetriever = Any  # type: ignore
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+console = Console(legacy_windows=False)
 app = typer.Typer()
 
 
@@ -45,14 +63,11 @@ def _run_condition(
     runner: PipelineRunner,
     test_reports: list[CTIReport],
     condition: str,
+    audit_path: Path | None = None,
+    model: str | None = None,
+    dataset_mode: str = "unknown",
 ) -> tuple[dict, dict, dict, dict]:
-    """
-    Run the pipeline on all test reports for one condition.
-
-    Returns:
-        predicted_by_report, ground_truth_by_report,
-        rejected_by_report, extracted_counts_by_report
-    """
+    """Run one condition, emitting a JSONL audit record for each completed report."""
     predicted_by_report = {}
     ground_truth_by_report = {}
     rejected_by_report = {}
@@ -60,15 +75,34 @@ def _run_condition(
 
     for i, report in enumerate(test_reports):
         console.print(f"\n[cyan]  [{i+1}/{len(test_reports)}] Report: {report.id}[/cyan]")
-
         result: PipelineResult = runner.run(report)
+
+        # Persist an error record too so a failed experiment is not silently lost.
+        if audit_path is not None:
+            record = build_audit_record(
+                report=report,
+                result=result,
+                condition=condition,
+                model=model or getattr(getattr(runner, "config", None), "model", "unknown"),
+                dataset_mode=dataset_mode,
+            )
+            write_jsonl_record(audit_path, record)
+
+        if result.error:
+            raise RuntimeError(
+                f"Pipeline failed for report {report.id!r} during {condition}: {result.error}. "
+                f"See audit record at {audit_path if audit_path else 'not configured'}."
+            )
 
         predicted_by_report[report.id] = result.final_triplets
         ground_truth_by_report[report.id] = report.ground_truth_triplets
         rejected_by_report[report.id] = result.rejected_triplets
-        # Total extracted before verification = final + rejected
+        # Rejection rate describes the final verifier pass, not all raw outputs
+        # accumulated over re-extraction attempts. Raw totals remain in the audit.
         extracted_counts_by_report[report.id] = (
-            len(result.final_triplets) + len(result.rejected_triplets)
+            len(result.verified_triplets) + len(result.rejected_triplets)
+            if condition == "full_pipeline"
+            else len(result.final_triplets)
         )
 
         console.print(
@@ -77,12 +111,25 @@ def _run_condition(
             f"{len(report.ground_truth_triplets)} GT[/green]"
         )
 
-    return (
-        predicted_by_report,
-        ground_truth_by_report,
-        rejected_by_report,
-        extracted_counts_by_report,
-    )
+    return predicted_by_report, ground_truth_by_report, rejected_by_report, extracted_counts_by_report
+
+
+def resolve_evaluation_model(model_override: str | None = None) -> str:
+    """Resolve the active model for evaluation, honoring CLI and env overrides.
+
+    Precedence:
+    1. Explicit model override (e.g. from CLI argument)
+    2. LLM_MODEL environment variable
+    3. PRIMARY_MODEL environment variable
+    4. Project-configured PRIMARY_MODEL from src.agents.llm_client
+    """
+    if model_override:
+        return model_override
+    env_override = os.environ.get("LLM_MODEL") or os.environ.get("PRIMARY_MODEL")
+    if env_override:
+        return env_override
+    from src.agents.llm_client import PRIMARY_MODEL as CONFIGURED_PRIMARY_MODEL
+    return CONFIGURED_PRIMARY_MODEL
 
 
 @app.command()
@@ -92,28 +139,78 @@ def main(
     data_dir: str = typer.Option("data", help="Root data directory"),
     results_dir: str = typer.Option("results", help="Results output directory"),
     model: str = typer.Option(None, help="LLM model override (default: from env/config)"),
+    allow_synthetic_data: bool = typer.Option(
+        False, help="Allow synthetic supplementation for demo only; never use for reported research results"
+    ),
+    seed: int = typer.Option(42, min=0, help="Seed for the reproducible train/test split"),
+    test_split: float = typer.Option(0.2, min=0.01, max=0.99, help="Fraction held out for testing (0.01-0.99)"),
 ):
-    """Evaluate the CTI extraction pipeline and save P/R/F1 results."""
+    """Evaluate the CTI extraction pipeline and save metrics plus per-report audit records."""
     data_path = Path(data_dir)
     results_path = Path(results_dir)
     results_path.mkdir(parents=True, exist_ok=True)
 
-    llm_model = model or os.environ.get("LLM_MODEL", "gpt-4o")
+    llm_model = resolve_evaluation_model(model)
     embedding_model = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     reranker_model = os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
     console.rule("[bold cyan]CTI Pipeline Evaluation")
     console.print(f"  Model: {llm_model} | Subset: {subset if subset > 0 else 'all'} | Condition: {condition}")
 
-    # ── Load dataset ──────────────────────────────────────────────────────────
-    console.rule("[cyan]Loading Dataset")
-    train_reports, test_reports = load_ctinexus_dataset(data_path)
+    if condition not in {"baseline", "full", "both"}:
+        raise typer.BadParameter("condition must be one of: baseline, full, both")
 
-    if subset > 0:
-        test_reports = test_reports[:subset]
-    console.print(f"[green]Evaluating on {len(test_reports)} test reports.[/green]")
+    train_reports, all_test_reports = load_ctinexus_dataset(
+        data_path,
+        allow_synthetic=allow_synthetic_data,
+        seed=seed,
+        test_split=test_split,
+    )
+    # Use the same frozen report IDs for every requested condition; subset only
+    # affects evaluation, not the dataset provenance accounting.
+    test_reports = all_test_reports[:subset] if subset > 0 else all_test_reports
+    all_dataset_reports = train_reports + all_test_reports
+    synthetic_report_ids = sorted(
+        report.id for report in all_dataset_reports if report.id.startswith("synthetic_")
+    )
+    dataset_mode = "synthetic_demo" if synthetic_report_ids else "real_data"
+    console.print(
+        f"[green]Evaluating on {len(test_reports)} test reports "
+        f"(split seed={seed}, test fraction={test_split}).[/green]"
+    )
 
-    # ── Build retriever (needed for full pipeline) ─────────────────────────────
+    # Start clean per-run artifacts; stale lines from previous runs must not mix
+    # with this experiment's per-report audit records.
+    audit_path = results_path / "per_report_audit.jsonl"
+    llm_audit_path = results_path / "llm_call_audit.jsonl"
+    manifest_path = results_path / "experiment_manifest.json"
+    if audit_path.exists():
+        audit_path.unlink()
+    if llm_audit_path.exists():
+        llm_audit_path.unlink()
+    os.environ["LLM_CALL_AUDIT_PATH"] = str(llm_audit_path)
+
+    started_at_utc = datetime.now(timezone.utc).isoformat()
+    manifest = build_experiment_manifest(
+        started_at_utc=started_at_utc,
+        condition=condition,
+        model=llm_model,
+        embedding_model=embedding_model,
+        reranker_model=reranker_model,
+        seed=seed,
+        test_split=test_split,
+        subset=subset,
+        train_reports=train_reports,
+        test_reports=test_reports,
+        full_test_split_reports=all_test_reports,
+        dataset_mode=dataset_mode,
+        allow_synthetic_data=allow_synthetic_data,
+        project_root=Path(__file__).resolve().parents[2],
+        data_dir=data_path,
+    )
+    write_json(manifest_path, manifest)
+    console.print(f"[green]Experiment manifest saved to {manifest_path}[/green]")
+
     retriever = None
     if condition in ("full", "both"):
         console.rule("[cyan]Loading RAG Retriever")
@@ -126,84 +223,97 @@ def main(
     all_results = []
     start_time = time.time()
 
-    # ── Baseline condition ────────────────────────────────────────────────────
     if condition in ("baseline", "both"):
         console.rule("[bold yellow]Running BASELINE Condition (no verifier)")
-
-        baseline_config = PipelineConfig(
-            model=llm_model,
-            embedding_model=embedding_model,
-            skip_verifier=True,
-            data_dir=data_path,
+        baseline_runner = PipelineRunner.build(
+            PipelineConfig(
+                model=llm_model, embedding_model=embedding_model,
+                skip_verifier=True, data_dir=data_path,
+            ),
+            train_reports,
         )
-        baseline_runner = PipelineRunner.build(baseline_config, train_reports)
-
-        pred, gt, rej, cnt = _run_condition(baseline_runner, test_reports, "baseline")
-        baseline_metrics = evaluate_pipeline_run("baseline", pred, gt)
+        pred, gt, rej, cnt = _run_condition(
+            baseline_runner, test_reports, "baseline", audit_path, llm_model, dataset_mode
+        )
+        baseline_metrics = evaluate_pipeline_run("baseline", pred, gt, extracted_counts_by_report=cnt)
         all_results.append(baseline_metrics.model_dump())
         console.print(f"[green]Baseline F1: {baseline_metrics.f1:.4f}[/green]")
 
-    # ── Full pipeline condition ───────────────────────────────────────────────
     if condition in ("full", "both"):
         console.rule("[bold green]Running FULL PIPELINE Condition (with verifier)")
-
-        full_config = PipelineConfig(
-            model=llm_model,
-            embedding_model=embedding_model,
-            reranker_model=reranker_model,
-            skip_verifier=False,
-            data_dir=data_path,
+        full_runner = PipelineRunner.build(
+            PipelineConfig(
+                model=llm_model, embedding_model=embedding_model,
+                reranker_model=reranker_model, skip_verifier=False, data_dir=data_path,
+            ),
+            train_reports, retriever=retriever,
         )
-        full_runner = PipelineRunner.build(full_config, train_reports, retriever=retriever)
-
-        pred, gt, rej, cnt = _run_condition(full_runner, test_reports, "full_pipeline")
+        pred, gt, rej, cnt = _run_condition(
+            full_runner, test_reports, "full_pipeline", audit_path, llm_model, dataset_mode
+        )
         full_metrics = evaluate_pipeline_run(
-            "full_pipeline", pred, gt,
-            rejected_by_report=rej,
-            extracted_counts_by_report=cnt,
+            "full_pipeline", pred, gt, rejected_by_report=rej, extracted_counts_by_report=cnt
         )
         all_results.append(full_metrics.model_dump())
         console.print(f"[green]Full Pipeline F1: {full_metrics.f1:.4f}[/green]")
 
     elapsed = time.time() - start_time
-
-    # ── Save results ──────────────────────────────────────────────────────────
     output = {
         "results": all_results,
         "metadata": {
             "model": llm_model,
+            "embedding_model": embedding_model,
+            "reranker_model": reranker_model if condition in {"full", "both"} else None,
             "num_test_reports": len(test_reports),
             "condition": condition,
+            "seed": seed,
+            "test_split_fraction": test_split,
+            "started_at_utc": started_at_utc,
+            "dataset_mode": dataset_mode,
+            "allow_synthetic_data": allow_synthetic_data,
+            "real_report_count": len(all_dataset_reports) - len(synthetic_report_ids),
+            "synthetic_report_count": len(synthetic_report_ids),
+            "synthetic_report_ids": synthetic_report_ids,
+            "test_report_ids": [report.id for report in test_reports],
             "elapsed_seconds": round(elapsed, 1),
+            "per_report_audit_file": str(audit_path),
+            "llm_call_audit_file": str(llm_audit_path),
+            "experiment_manifest_file": str(manifest_path),
+            "dataset_fingerprint_sha256": manifest["dataset"]["fingerprint_sha256"],
+            "prompt_sha256": manifest["prompt_sha256"],
+            "implementation_sha256": manifest["implementation_sha256"],
         },
     }
     output_path = results_path / "evaluation_results.json"
-    with open(output_path, "w") as f:
+    with output_path.open("w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
     console.print(f"\n[green]Results saved to {output_path}[/green]")
+    console.print(f"[green]Per-report audit saved to {audit_path}[/green]")
 
-    # ── Print summary table ───────────────────────────────────────────────────
-    console.rule("[bold]Results Summary")
-    table = Table(title="CTI Extraction Evaluation")
+    table = Table(title="CTI Extraction Evaluation (Micro & Macro Metrics)")
     table.add_column("Condition", style="cyan")
-    table.add_column("Precision", style="green")
-    table.add_column("Recall", style="green")
-    table.add_column("F1", style="bold green")
+    table.add_column("Micro P", style="green")
+    table.add_column("Micro R", style="green")
+    table.add_column("Micro F1", style="bold green")
+    table.add_column("Macro F1", style="bold magenta")
     table.add_column("Entity F1", style="yellow")
-    table.add_column("Halluc. Rate", style="red")
+    table.add_column("Reject Rate", style="red")
     table.add_column("Reports", style="dim")
-
     for r in all_results:
         table.add_row(
             r["condition"],
             f"{r['precision']:.4f}",
             f"{r['recall']:.4f}",
             f"{r['f1']:.4f}",
+            f"{r.get('macro_f1', 0.0):.4f}",
             f"{r['entity_f1']:.4f}",
-            f"{r['hallucination_rate']:.4f}",
+            (
+                f"{r['rejection_rate']:.4f}"
+                if r.get("rejection_rate") is not None
+                else "N/A"
+            ),
             str(r["num_reports"]),
         )
-
     console.print(table)
     console.print(f"\n[dim]Elapsed: {elapsed:.1f}s[/dim]")
 

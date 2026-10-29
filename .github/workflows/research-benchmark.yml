@@ -1,0 +1,151 @@
+name: Research benchmark (real dataset only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      llm_provider:
+        description: LLM provider
+        required: true
+        type: choice
+        options:
+          - groq
+          - openai
+          - huggingface
+        default: groq
+      model:
+        description: Primary model ID for the selected provider (default is suitable for Groq; change it for other providers)
+        required: true
+        type: string
+        default: openai/gpt-oss-120b
+      fallback_model:
+        description: Fallback model ID for the selected provider (must be supported by the selected provider)
+        required: true
+        type: string
+        default: openai/gpt-oss-20b
+      subset:
+        description: Number of held-out reports (1 means smoke-scale research preflight; 0 is not allowed here)
+        required: true
+        type: number
+        default: 20
+      test_split:
+        description: Fraction held out for test (0.01-0.99)
+        required: true
+        type: number
+        default: 0.2
+      seed:
+        description: Reproducible split seed
+        required: true
+        type: number
+        default: 42
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  baseline-vs-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      LLM_PROVIDER: ${{ inputs.llm_provider }}
+      PRIMARY_MODEL: ${{ inputs.model }}
+      FALLBACK_MODEL: ${{ inputs.fallback_model }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      LANGCHAIN_TRACING_V2: "false"
+      LANGSMITH_TRACING: "false"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out research branch
+        uses: actions/checkout@v4
+        with:
+          ref: research/evaluation-audit
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Validate dispatch parameters and provider secret
+        shell: bash
+        env:
+          SUBSET: ${{ inputs.subset }}
+          TEST_SPLIT: ${{ inputs.test_split }}
+          SEED: ${{ inputs.seed }}
+        run: |
+          python - <<'PY'
+          import os
+          subset_value = float(os.environ["SUBSET"])
+          seed_value = float(os.environ["SEED"])
+          split = float(os.environ["TEST_SPLIT"])
+          if not subset_value.is_integer() or subset_value < 1:
+              raise SystemExit("subset must be a positive integer")
+          if not seed_value.is_integer() or seed_value < 0:
+              raise SystemExit("seed must be a non-negative integer")
+          if not 0.01 <= split <= 0.99:
+              raise SystemExit("test_split must be between 0.01 and 0.99")
+          if not os.environ.get("PRIMARY_MODEL") or not os.environ.get("FALLBACK_MODEL"):
+              raise SystemExit("primary and fallback model IDs must be provided")
+          provider = os.environ["LLM_PROVIDER"]
+          secret_by_provider = {
+              "groq": "GROQ_API_KEY",
+              "openai": "OPENAI_API_KEY",
+              "huggingface": "HF_TOKEN",
+          }
+          secret_name = secret_by_provider[provider]
+          if not os.environ.get(secret_name):
+              raise SystemExit(
+                  f"Missing repository Actions secret {secret_name}. "
+                  "Add the provider credential under Settings > Secrets and variables > Actions."
+              )
+          print(f"Parameters validated: provider={provider}, model={os.environ['PRIMARY_MODEL']}, subset={subset_value}, split={split}")
+          PY
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Download real CTINexus and ATT&CK data; build indexes
+        run: python scripts/setup_data.py
+
+      - name: Reject synthetic reports and fallback ATT&CK indexes
+        run: python scripts/validate_research_inputs.py data
+
+      - name: Run paired baseline and full-pipeline evaluation
+        env:
+          SUBSET: ${{ inputs.subset }}
+          TEST_SPLIT: ${{ inputs.test_split }}
+          SEED: ${{ inputs.seed }}
+        run: |
+          python -m src.evaluation.run_evaluation \
+            --condition both \
+            --subset "$SUBSET" \
+            --test-split "$TEST_SPLIT" \
+            --seed "$SEED" \
+            --model "$PRIMARY_MODEL" \
+            --data-dir data \
+            --results-dir results
+
+      - name: Generate comparison plots
+        if: success()
+        run: python -m src.evaluation.plot_results --results-file results/evaluation_results.json --figures-dir results/figures
+
+      - name: Upload metrics and audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-benchmark-${{ github.run_id }}
+          path: |
+            results/evaluation_results.json
+            results/experiment_manifest.json
+            results/per_report_audit.jsonl
+            results/llm_call_audit.jsonl
+            results/figures/*.png
+          if-no-files-found: warn
+          retention-days: 30
