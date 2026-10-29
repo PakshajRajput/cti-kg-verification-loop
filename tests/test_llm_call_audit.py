@@ -1,7 +1,7 @@
 """Tests for safe request-level LLM model attribution audit logging."""
 import json
 
-from src.agents.llm_client import _log_model_call
+from src.agents.llm_call_audit import log_model_call as _log_model_call
 
 
 def test_model_call_audit_records_actual_fallback_model_without_prompts_or_secrets(tmp_path, monkeypatch):
