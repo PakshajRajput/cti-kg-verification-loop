@@ -16,4 +16,6 @@ def test_research_workflow_is_manual_and_uses_real_data_safeguards():
     assert "secrets.OPENAI_API_KEY" in workflow
     assert "secrets.HF_TOKEN" in workflow
     assert "actions/upload-artifact@v4" in workflow
+    assert "subset={subset_value}" in workflow
+    assert "subset={subset}," not in workflow
     assert "--allow-synthetic-data" not in workflow
