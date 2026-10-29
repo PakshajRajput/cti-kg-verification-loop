@@ -37,6 +37,7 @@ def build_audit_record(
         "ground_truth_triplets": _json_model(report.ground_truth_triplets),
         "raw_triplets": _json_model(result.raw_triplets),
         "raw_triplets_by_iteration": _json_model(result.raw_triplets_by_iteration),
+        "canonical_triplets_by_iteration": _json_model(result.canonical_triplets_by_iteration),
         "total_raw_triplets": result.total_raw_triplets,
         "canonical_triplets": _json_model(result.canonical_triplets),
         "final_triplets": _json_model(result.final_triplets),
