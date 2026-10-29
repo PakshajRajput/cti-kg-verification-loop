@@ -12,7 +12,7 @@ load_dotenv()
 # ─── Configuration ─────────────────────────────────────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
-PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "llama-3.3-70b-versatile")
+PRIMARY_MODEL = os.getenv("LLM_MODEL") or os.getenv("PRIMARY_MODEL", "llama-3.3-70b-versatile")
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "llama-3.1-8b-instant")
 
 # Provider clients
@@ -54,7 +54,12 @@ elif LLM_PROVIDER == "openai":
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 @traceable(name="LLM Call")
-def call_llm(messages: List[Dict[str, str]], max_tokens: int = 1500, temperature: float = 0.1) -> str:
+def call_llm(
+    messages: List[Dict[str, str]],
+    max_tokens: int = 1500,
+    temperature: float = 0.1,
+    model: Optional[str] = None,
+) -> str:
     """
     Call the primary LLM, falling back to the secondary if it fails.
     """
@@ -62,6 +67,7 @@ def call_llm(messages: List[Dict[str, str]], max_tokens: int = 1500, temperature
     import random
     
     last_error = None
+    primary_model = model or PRIMARY_MODEL
     backoff_schedule = [0, 1, 2, 4]  # Maximum 4 attempts
     
     for attempt, delay in enumerate(backoff_schedule):
@@ -79,14 +85,14 @@ def call_llm(messages: List[Dict[str, str]], max_tokens: int = 1500, temperature
             try:
                 response = groq_client.chat.completions.create(
                     messages=messages,
-                    model=PRIMARY_MODEL,
+                    model=primary_model,
                     max_tokens=max_tokens,
                     temperature=temperature
                 )
                 return response.choices[0].message.content
             except Exception as e:
                 last_error = e
-                print(f"Primary ({PRIMARY_MODEL}) failed on attempt {attempt + 1}: {e}")
+                print(f"Primary ({primary_model}) failed on attempt {attempt + 1}: {e}")
 
             # Fallback
             try:
@@ -104,7 +110,13 @@ def call_llm(messages: List[Dict[str, str]], max_tokens: int = 1500, temperature
         elif LLM_PROVIDER == "huggingface":
             # Primary
             try:
-                response = hf_primary_client.chat.completions.create(
+                primary_client = hf_primary_client
+                if model and model != PRIMARY_MODEL:
+                    primary_client = InferenceClient(
+                        base_url=f"https://api-inference.huggingface.co/models/{primary_model}/v1",
+                        token=HF_TOKEN,
+                    )
+                response = primary_client.chat.completions.create(
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature
@@ -160,7 +172,12 @@ def call_llm(messages: List[Dict[str, str]], max_tokens: int = 1500, temperature
 
     raise RuntimeError(f"All 4 attempts failed: {last_error}")
 
-def call_llm_json(messages: List[Dict[str, str]], max_tokens: int = 1500, temperature: float = 0.1) -> Any:
+def call_llm_json(
+    messages: List[Dict[str, str]],
+    max_tokens: int = 1500,
+    temperature: float = 0.1,
+    model: Optional[str] = None,
+) -> Any:
     """
     Helper to call the LLM and parse the response as JSON.
     Includes robust partial JSON recovery and a fallback repair prompt.
@@ -174,7 +191,9 @@ def call_llm_json(messages: List[Dict[str, str]], max_tokens: int = 1500, temper
         "content": "Return ONLY valid JSON. No markdown fences, no explanation, no reasoning text before or after the JSON."
     })
         
-    response_text = call_llm(messages, max_tokens=max_tokens, temperature=temperature)
+    response_text = call_llm(
+        messages, max_tokens=max_tokens, temperature=temperature, model=model
+    )
     
     def clean_json(text: str) -> str:
         cleaned = text.strip()
@@ -237,7 +256,9 @@ def call_llm_json(messages: List[Dict[str, str]], max_tokens: int = 1500, temper
         ]
         
         try:
-            repaired_text = call_llm(repair_messages, max_tokens=max_tokens, temperature=temperature)
+            repaired_text = call_llm(
+                repair_messages, max_tokens=max_tokens, temperature=temperature, model=model
+            )
             cleaned_repaired = clean_json(repaired_text)
             return json.loads(cleaned_repaired), "fallback_repair", repaired_text
         except Exception as repair_error:
