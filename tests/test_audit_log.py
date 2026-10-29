@@ -122,6 +122,10 @@ def test_experiment_manifest_records_reproducibility_without_report_text(tmp_pat
         subset=1,
         train_reports=train,
         test_reports=test,
+        full_test_split_reports=[
+            CTIReport(id="test-1", text="held out text", ground_truth_triplets=[make_triplet()]),
+            CTIReport(id="test-2", text="not evaluated due to subset", ground_truth_triplets=[make_triplet()]),
+        ],
         dataset_mode="real_data",
         allow_synthetic_data=False,
         project_root=tmp_path,
@@ -129,7 +133,9 @@ def test_experiment_manifest_records_reproducibility_without_report_text(tmp_pat
 
     assert manifest["configuration"]["seed"] == 42
     assert manifest["dataset"]["train_report_ids"] == ["train-1"]
-    assert manifest["dataset"]["test_report_ids"] == ["test-1"]
+    assert manifest["dataset"]["evaluated_test_report_ids"] == ["test-1"]
+    assert manifest["dataset"]["full_test_split_report_ids"] == ["test-1", "test-2"]
+    assert manifest["dataset"]["report_count"] == 3
     assert len(manifest["dataset"]["fingerprint_sha256"]) == 64
     assert "training text" not in json.dumps(manifest)
     assert manifest["prompt_sha256"]["extractor_system"] is None
