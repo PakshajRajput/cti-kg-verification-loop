@@ -30,9 +30,14 @@ from src.ingestion.models import (
     VerificationDecision,
     VerificationVerdict,
 )
+from typing import Any
+
 from src.pipeline.verification_response import parse_verification_response as _parse_verification_response
 from src.pipeline.verification_state import apply_verification_outputs
-from src.rag.hybrid_retriever import HybridRetriever
+try:
+    from src.rag.hybrid_retriever import HybridRetriever
+except ImportError:
+    HybridRetriever = Any  # type: ignore
 
 console = Console()
 

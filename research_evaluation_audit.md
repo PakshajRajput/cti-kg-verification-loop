@@ -28,47 +28,61 @@ This independent research evaluation and reproducibility audit examines whether 
 4. **Metric Integrity & Disambiguation (Resolved):**
    `PipelineResult` now exposes `rejection_rate` using the correct denominator ($\frac{|Rejected|}{|Verified| + |Rejected|}$), retaining `hallucination_rate` only as a backward-compatible alias. Evaluation tables and generated figures explicitly label Micro versus Macro metrics and present both.
 
-5. **Test Discovery & Windows Platform Hardening (Resolved):**
-   Pytest discovery was configured in `pyproject.toml` with `testpaths = ["tests"]` and ignored `data/` directories, achieving **47/47 passing tests**. Windows cp1252 console charmap crashes were resolved across `src/pipeline/runner.py` and `src/evaluation/run_evaluation.py` via UTF-8 reconfigure and `legacy_windows=False`.
+5. **Test Discovery & Platform Hardening (Resolved):**
+   Pytest discovery was configured in `pyproject.toml` with `testpaths = ["tests"]` and ignored `data/` directories, achieving **50/50 passing tests** (including evaluator model resolution regression tests). Windows cp1252 console charmap crashes were resolved across `src/pipeline/runner.py` and `src/evaluation/run_evaluation.py` via UTF-8 reconfigure and `legacy_windows=False`. CI workflow dependencies were scoped to eliminate heavyweight ML packages.
 
 6. **Genuine Paired Empirical Benchmark (Completed):**
    A paired baseline versus full-pipeline evaluation was executed on 5 held-out test reports under identical split seeding (seed 42, test fraction 0.2). Full audit artifacts were generated and verified:
    - Baseline: Micro P = 0.2200, Micro R = 0.2000, Micro F1 = 0.2095 (Macro F1 = 0.2129, Entity F1 = 0.5882)
    - Full Pipeline: Micro P = 0.2083, Micro R = 0.1818, Micro F1 = 0.1942 (Macro F1 = 0.2055, Entity F1 = 0.5593)
-   - Rejection Rate: 0.0000 across the 5 test reports. Verifier actively standardized extracted relations to canonical ATT&CK techniques (e.g., mapping generic descriptions to `T1566.001` and `T1210`).
+   - Rejection Rate: 0.0000 across the 5 test reports (0 rejected out of 48 verified triplets).
+   - **Honest Empirical Accounting:** Verification did **not** improve F1 on these 5 reports (Micro F1 was 0.1942 vs. 0.2095 baseline). Because rejection rate was 0.0 and no human adjudication was performed, **no claim is made that verification improved F1 or reduced hallucinations based on these results**.
 
 ---
 
 ## 2. Repository and Environment State
 
 ### Git Working Tree & Branch Integrity
-- **Active Branch:** `research/evaluation-audit` (switched from `frontend` upon initial inspection; tracked to `origin/research/evaluation-audit`).
-- **Commit SHA:** `1b7936e30e2b64906253901ba4bf018bc8d5c774`
-- **Recent Audit Commits:**
-  - `1b7936e`: Test provider-returned model attribution and fallback behavior
-  - `1268ca9`: Use tested served-model attribution helper for primary and fallback responses
-  - `ddcc4c4`: Isolate provider-returned model ID resolution for testing
-  - `e932e11`: Hash ingestion and retrieval code that defines benchmark inputs
-  - `8a9b4d8`: Capture provider-returned model IDs in request audit logs
+- **Active Branch:** `research/evaluation-audit` (tracked to `origin/research/evaluation-audit`).
+- **Audit Starting Commit:** `1b7936e30e2b64906253901ba4bf018bc8d5c774` (historical baseline inspection point)
+- **Current Verified Audit Head:** `3ed3866` (and subsequent audit commits on `research/evaluation-audit`)
+- **Key Audit Commits:**
+  - `3ed3866`: fix(evaluation): complete research audit remediations and empirical validation
+  - `f2bbc02`: Update audit report with verified test results
+  - `7d4aae3`: Test demonstration isolation and default pytest discovery
+  - `1cedd54`: Document independent evaluation and reproducibility audit
+  - `7c2c3ab`: Restore dataset cache safety regression tests
+  - `1b7936e`: Baseline commit prior to audit remediations
 - **Git Safety Protocol Adherence:**
-  - No commits pushed or history rewritten.
-  - PR [#1](https://github.com/PakshajRajput/cti-kg-verification-loop/pull/1) remains unmerged.
-  - Zero modifications to `main` branch.
+  - PR [#1](https://github.com/PakshajRajput/cti-kg-verification-loop/pull/1) remains draft, open, and unmerged.
+  - Zero merges or modifications to `main` branch.
+  - No force-pushes or history rewrites.
+  - Unrelated user files preserved untouched.
   - All secret keys, tokens, and private report contents kept strictly out of logs and reports.
 
-### Local Environment & Asset Verification
-- **Python Runtime:** Python 3.10.6 on Windows (x86_64).
-- **Core Dependencies:** Installed and verified:
-  - `pydantic 2.13.4`, `chromadb 0.5.0+`, `rank-bm25 0.2.2`, `sentence-transformers 5.6.1`
-  - `networkx 3.4.2`, `langgraph 0.2.0+`, `groq 0.9.0+`, `pytest 9.1.1`
+### Environment & Dataset Asset State: Historical Baseline vs. Current Verified State
+
+To ensure rigorous scientific auditability, the historical baseline findings are explicitly separated from the current verified state:
+
+#### Historical Pre-Audit Baseline State (Commit `1b7936e`):
+- **Annotated Reports (`data/processed/reports.jsonl`):** 308 records present (3,783 total ground-truth triplets).
+- **Forensic Discrepancy:** Contained only 148 unique text documents (160 redundant duplicate entries from crawling both `annotation/` and `demo/` directories).
+- **Data Contamination:** In an 80/20 train/test split, 53 out of 61 test reports (86.89%) had exact textual clones in the training partition, yielding 1.0000 cosine similarity demonstration retrieval and complete ground-truth leakage into prompts.
+- **Provider Default:** Defaulted to `llama-3.3-70b-versatile` (primary) and `llama-3.1-8b-instant` (fallback), returning HTTP 404 errors on Groq.
+- **Verifier Grounding:** Excluded source document text, validating only whether assertions were plausible in ATT&CK rather than faithful to the report.
+- **Test Discovery:** Pytest without arguments crashed on third-party test directories; test suite had missing tests for data leakage and Windows charmap encoding.
+
+#### Current Verified State:
+- **Clean Research Corpus (`data/processed/reports.jsonl`):** Exactly 148 unique, verified real CTI reports (1,812 ground-truth triplets, 0 duplicates, 0 synthetic reports).
+- **Data Leakage Safeguards:** Ingestion restricted strictly to `ctinexus/data/annotation/`; deduplication purges duplicate IDs and normalized text; strict disjointness ($Train \cap Test = \emptyset$) enforced in `load_ctinexus_dataset` and `scripts/validate_research_inputs.py`. Extractor demonstration retriever filters out query reports, duplicate texts, and test split members.
+- **Supported Provider Configuration:** Aligned across `llm_client.py`, `run_evaluation.py`, `audit_log.py`, `run_pipeline.py`, and `test_pipeline.py` to `openai/gpt-oss-120b` (primary) and `openai/gpt-oss-20b` (fallback).
+- **Document-Grounded Verifier:** Verifier inspects original source report excerpt alongside retrieved MITRE ATT&CK context.
+- **Test Suite Status:** **50/50 passing unit and regression tests** (including evaluator model resolution, cache safety, disjointness, Windows encoding, and formula verification).
 - **Knowledge Base Assets (`data/`):**
   - `data/mitre/entries.jsonl`: 1,813 normalized MITRE ATT&CK entries.
   - `data/mitre/bm25_corpus.jsonl`: 1,813 entries matching normalized ATT&CK.
-  - `data/mitre/bm25_index.pkl`: Serialized BM25 index present.
+  - `data/mitre/bm25_index.pkl`: Serialized BM25 index verified.
   - `data/chroma/chroma.sqlite3`: Persistent Chroma vector store containing 1,813 vector embeddings.
-- **Annotated Reports (`data/processed/reports.jsonl`):**
-  - 308 records present (3,783 total ground-truth triplets).
-  - *Discrepancy:* Contains only 148 unique text documents (160 redundant duplicate entries).
 
 ---
 
@@ -79,7 +93,7 @@ The following checks and test suites were executed directly within the project e
 | Command | Status | Details / Failure Mode |
 |---|---|---|
 | `python -m compileall -q src tests` | **PASSED** | Clean bytecode compilation across all source and test modules. |
-| `python -m pytest -q` | **PASSED** | **All 47 unit and regression tests passed in 14.02s**. Pytest config in `pyproject.toml` isolates `tests/` and ignores third-party directories. |
+| `python -m pytest -q` | **PASSED** | **All 50 unit and regression tests passed in 5.88s**. Pytest config in `pyproject.toml` isolates `tests/` and ignores third-party directories. Tests pass in standard environment and in scoped CI environments without heavyweight ML dependencies. |
 | `python scripts/validate_research_inputs.py data` | **PASSED** | Strict preflight passed: 148 unique real reports (0 synthetic, 0 duplicate texts, 0 duplicate IDs), 1,812 GT triplets, 1,813 ATT&CK entries, 1,813 BM25 entries, 1,813 Chroma vectors. |
 | `python -m src.evaluation.run_evaluation --help` | **PASSED** | CLI options verified cleanly with rich table rendering on Windows. |
 | `python -m src.evaluation.run_evaluation --subset 5 --condition both --seed 42 --test-split 0.2` | **PASSED** | Paired benchmark executed across 5 held-out test reports in 861.9s. Emitted full audit records, call attribution logs, and manifest. |
@@ -136,16 +150,7 @@ These behaviors were verified and covered with new regression tests during this 
 - **Semantic Distinction:** The documentation (`docs/evaluation_protocol.md`) and evaluation logic (`src/evaluation/evaluator.py`) clearly state:
   > *"Verifier rejection rate is the fraction of triplets rejected in the final verifier pass. It is a process metric, not a validated hallucination rate: a verifier may reject a correct relation or accept an incorrect one."*
 - **Baseline Handling:** Baseline runs (which bypass the verifier) explicitly report `rejection_rate = None` and `hallucination_rate = None` (displayed as `N/A` in tables and hatched bars in plots). This prevents the misleading claim that the baseline has a "0% rejection rate".
-- **Code Inconsistency:** `src/ingestion/models.py` still contains:
-  ```python
-  @property
-  def hallucination_rate(self) -> float:
-      total = len(self.final_triplets) + len(self.rejected_triplets)
-      if total == 0:
-          return 0.0
-      return len(self.rejected_triplets) / total
-  ```
-  This retains the misleading label on the primary result data structure.
+- **Remediation Implemented (Resolved):** In the pre-audit baseline, `PipelineResult.hallucination_rate` used `len(final_triplets) + len(rejected_triplets)` in the denominator. This has been remediated in `src/ingestion/models.py`: `PipelineResult.rejection_rate` is now the canonical property using `len(self.verified_triplets) + len(self.rejected_triplets)` in the denominator, and `hallucination_rate` is maintained only as a deprecated alias for backward compatibility. Correctness is enforced via dedicated unit tests.
 
 ---
 
@@ -294,6 +299,17 @@ Following the remediation of data leakage, preflight validation, and provider co
    - `results/per_report_audit.jsonl`: 10 complete records (5 baseline, 5 full pipeline) with full decision traces.
    - `results/llm_call_audit.jsonl`: Full HTTP call logs with model attribution and outcomes.
    - `results/figures/`: Publication-ready comparison charts generated.
+
+### 7.1 Rigorous Scientific Assessment of Pilot Benchmark
+- **Honest Empirical Accounting:**
+  - Baseline (5 reports): Micro P = 0.2200, Micro R = 0.2000, Micro F1 = 0.2095 (Macro F1 = 0.2129, Entity F1 = 0.5882)
+  - Full Pipeline (5 reports): Micro P = 0.2083, Micro R = 0.1818, Micro F1 = 0.1942 (Macro F1 = 0.2055, Entity F1 = 0.5593)
+  - Full-Pipeline Rejection Rate: 0.0000 across 5 reports (0 out of 48 verified triplets rejected)
+- **Explicit Non-Claims & Bounded Conclusions:**
+  - **Verification Did Not Improve F1:** Across these 5 pilot reports, the full verification pipeline did **not** improve extraction F1 compared to the baseline. In fact, surface Micro F1 was 0.1942 vs. 0.2095 (and Macro F1 was 0.2055 vs. 0.2129).
+  - **No Demonstrated Hallucination Reduction:** Because the rejection rate was 0.0 on these reports, and because no blinded human expert adjudication was conducted, **it is scientifically invalid to claim that verification reduced hallucinations or eliminated errors based on these results**.
+  - **Surface Matching vs. Knowledge Normalization:** In CTINexus, ground-truth annotations frequently use informal colloquial phrasing (e.g., `uses credential phishing`). When the verifier grounds an extraction into ATT&CK and standardizes the relation (e.g., `Phishing: Credential Phishing (T1566.001)`), surface string-matching scores the standardized triplet as a false positive against the unstandardized gold annotation.
+  - **Publication Requirement:** Prior to claiming extraction improvements or hallucination reduction in a conference submission, two steps are mandatory: (1) running across the entire held-out test split (29 reports) with paired statistical significance testing, and (2) blinded human expert adjudication comparing extracted triplets against source documents.
 
 ---
 
@@ -448,12 +464,13 @@ Inspect that `results/` contains:
 - **Micro vs. Macro Disambiguation:** Both pooling approaches explicitly reported in tables, JSON outputs, and visualization plots.
 - **Process Rejection vs. Hallucination:** Rejection rate properly computed with correct denominator ($\frac{|Rejected|}{|Verified| + |Rejected|}$) and designated as an operational process filter.
 
-### Claims That Still Require Independent Adjudication:
-- **"Verification reduces LLM hallucination":** A verifier rejection rate of $0.0\%$ (or any other value) is an internal agent process decision. Reviewers will demand independent human expert adjudication on a sample of triplets to verify whether rejected triplets were genuinely hallucinated and whether accepted triplets were faithfully grounded.
+### Claims That Still Require Independent Adjudication & Must Not Be Made Prematurely:
+- **"Verification improves extraction F1":** **Cannot be claimed.** On the 5-report empirical pilot, Micro F1 was 0.1942 for full pipeline vs. 0.2095 for baseline (Macro F1: 0.2055 vs. 0.2129). Surface evaluation penalizes standardizing informal text to ATT&CK technique IDs.
+- **"Verification reduces LLM hallucination":** **Cannot be claimed.** Rejection rate was 0.0000 on the pilot reports, and no blinded human adjudication was conducted. A verifier rejection rate is an internal agent filter, not a validated hallucination rate.
 - **Full Test Set Generalization:** The initial paired benchmark established empirical feasibility on 5 seeded held-out reports; running across the entire 29-report test split (~50 min compute) is required for final published tables.
 
 ### Remaining Steps Prior to Camera-Ready Submission:
-1. Run paired evaluation across the complete 29-report test split (`--subset 0`).
+1. Run paired evaluation across the complete 29-report test split (`--subset 0`) after obtaining authorization.
 2. Conduct blinded human expert adjudication on 100 verifier decisions (measuring true hallucination reduction vs. false rejection of novel facts).
 3. Compute paired permutation test p-values and report-level bootstrap 95% confidence intervals on the full test split.
 
@@ -464,4 +481,4 @@ Inspect that `results/` contains:
 # **REMEDIATIONS VERIFIED — HARNESS SCIENTIFICALLY SOUND**
 
 ### Summary:
-All critical defects identified in the initial audit — catastrophic few-shot data leakage, missing provider model alignment, denominator errors, missing document grounding in the verifier, and test-runner crashes — have been completely remediated and validated with 47 passing unit/regression tests and genuine empirical evaluation. The experimental harness is now rigorous, reproducible, and compliant with premier conference standards.
+All critical defects identified in the initial audit — catastrophic few-shot data leakage, missing provider model alignment, denominator errors, missing document grounding in the verifier, test-runner crashes, and CI test dependency gaps — have been completely remediated and validated with 50 passing unit/regression tests, preflight input integrity validation, and genuine empirical evaluation. The experimental harness is now rigorous, reproducible, and compliant with premier conference standards.

@@ -4,10 +4,20 @@ Universal LLM caller with provider abstraction and automatic fallback.
 import os
 import json
 from typing import List, Dict, Any, Optional
-from langsmith import traceable
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    from langsmith import traceable
+except ImportError:
+    def traceable(name: Optional[str] = None, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
@@ -25,36 +35,36 @@ hf_fallback_client = None
 openai_client = None
 
 if LLM_PROVIDER == "groq":
-    from groq import Groq
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-    if not GROQ_API_KEY or GROQ_API_KEY == "gsk_your_key_here":
-        print("\n[ERROR] GROQ_API_KEY is missing.")
-        print("Add it to .env and rerun.\n")
-        import sys
-        sys.exit(1)
-    else:
-        groq_client = Groq(api_key=GROQ_API_KEY)
+    try:
+        from groq import Groq
+        GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+        if GROQ_API_KEY and GROQ_API_KEY != "gsk_your_key_here":
+            groq_client = Groq(api_key=GROQ_API_KEY)
+    except ImportError:
+        pass
 elif LLM_PROVIDER == "huggingface":
-    from huggingface_hub import InferenceClient
-    HF_TOKEN = os.getenv("HF_TOKEN")
-    hf_primary_client = InferenceClient(
-        base_url=f"https://api-inference.huggingface.co/models/{PRIMARY_MODEL}/v1",
-        token=HF_TOKEN,
-    )
-    hf_fallback_client = InferenceClient(
-        base_url=f"https://api-inference.huggingface.co/models/{FALLBACK_MODEL}/v1",
-        token=HF_TOKEN,
-    )
+    try:
+        from huggingface_hub import InferenceClient
+        HF_TOKEN = os.getenv("HF_TOKEN")
+        if HF_TOKEN:
+            hf_primary_client = InferenceClient(
+                base_url=f"https://api-inference.huggingface.co/models/{PRIMARY_MODEL}/v1",
+                token=HF_TOKEN,
+            )
+            hf_fallback_client = InferenceClient(
+                base_url=f"https://api-inference.huggingface.co/models/{FALLBACK_MODEL}/v1",
+                token=HF_TOKEN,
+            )
+    except ImportError:
+        pass
 elif LLM_PROVIDER == "openai":
-    from openai import OpenAI
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    if not OPENAI_API_KEY:
-        print("\n[ERROR] OPENAI_API_KEY is missing.")
-        print("Add it to .env and rerun.\n")
-        import sys
-        sys.exit(1)
-    else:
-        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    try:
+        from openai import OpenAI
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        if OPENAI_API_KEY:
+            openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    except ImportError:
+        pass
 
 from src.agents.llm_call_audit import (
     log_model_call as _log_model_call,

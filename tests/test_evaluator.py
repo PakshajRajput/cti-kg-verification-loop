@@ -155,3 +155,41 @@ def test_pipeline_result_rejection_rate_handles_zero_triplets():
     )
     assert result.rejection_rate == 0.0
     assert result.hallucination_rate == 0.0
+
+
+def test_resolve_evaluation_model_defaults_to_primary_model_without_override(monkeypatch):
+    from src.evaluation.run_evaluation import resolve_evaluation_model
+    from src.agents.llm_client import PRIMARY_MODEL
+
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("PRIMARY_MODEL", raising=False)
+
+    resolved = resolve_evaluation_model(None)
+    assert resolved == PRIMARY_MODEL
+    assert "llama-3.3-70b-versatile" not in resolved
+
+
+def test_resolve_evaluation_model_respects_explicit_override_and_env(monkeypatch):
+    from src.evaluation.run_evaluation import resolve_evaluation_model
+
+    monkeypatch.setenv("LLM_MODEL", "env-llm-model")
+    assert resolve_evaluation_model("cli-model-override") == "cli-model-override"
+
+    monkeypatch.setenv("PRIMARY_MODEL", "env-primary-model")
+    assert resolve_evaluation_model(None) == "env-llm-model"
+
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    assert resolve_evaluation_model(None) == "env-primary-model"
+
+
+def test_resolve_configured_fallback_model_defaults_without_override(monkeypatch):
+    from src.evaluation.audit_log import resolve_configured_fallback_model
+    from src.agents.llm_client import FALLBACK_MODEL
+
+    monkeypatch.delenv("FALLBACK_MODEL", raising=False)
+    resolved = resolve_configured_fallback_model()
+    assert resolved == FALLBACK_MODEL
+    assert "llama-3.1-8b-instant" not in resolved
+
+    monkeypatch.setenv("FALLBACK_MODEL", "custom-fallback")
+    assert resolve_configured_fallback_model() == "custom-fallback"

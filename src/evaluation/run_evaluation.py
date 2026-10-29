@@ -33,9 +33,20 @@ from src.evaluation.audit_log import (
 )
 from src.evaluation.evaluator import evaluate_pipeline_run
 from src.ingestion.dataset_loader import load_ctinexus_dataset
+from typing import Any
+
 from src.ingestion.models import CTIReport, PipelineResult
-from src.pipeline.runner import PipelineConfig, PipelineRunner
-from src.rag.hybrid_retriever import HybridRetriever
+
+try:
+    from src.pipeline.runner import PipelineConfig, PipelineRunner
+except ImportError:
+    PipelineConfig = Any  # type: ignore
+    PipelineRunner = Any  # type: ignore
+
+try:
+    from src.rag.hybrid_retriever import HybridRetriever
+except ImportError:
+    HybridRetriever = Any  # type: ignore
 
 if sys.platform == "win32":
     try:
@@ -103,6 +114,24 @@ def _run_condition(
     return predicted_by_report, ground_truth_by_report, rejected_by_report, extracted_counts_by_report
 
 
+def resolve_evaluation_model(model_override: str | None = None) -> str:
+    """Resolve the active model for evaluation, honoring CLI and env overrides.
+
+    Precedence:
+    1. Explicit model override (e.g. from CLI argument)
+    2. LLM_MODEL environment variable
+    3. PRIMARY_MODEL environment variable
+    4. Project-configured PRIMARY_MODEL from src.agents.llm_client
+    """
+    if model_override:
+        return model_override
+    env_override = os.environ.get("LLM_MODEL") or os.environ.get("PRIMARY_MODEL")
+    if env_override:
+        return env_override
+    from src.agents.llm_client import PRIMARY_MODEL as CONFIGURED_PRIMARY_MODEL
+    return CONFIGURED_PRIMARY_MODEL
+
+
 @app.command()
 def main(
     subset: int = typer.Option(20, help="Number of test reports to evaluate (0 = all)"),
@@ -121,11 +150,7 @@ def main(
     results_path = Path(results_dir)
     results_path.mkdir(parents=True, exist_ok=True)
 
-    llm_model = (
-        model
-        or os.environ.get("LLM_MODEL")
-        or os.environ.get("PRIMARY_MODEL", "llama-3.3-70b-versatile")
-    )
+    llm_model = resolve_evaluation_model(model)
     embedding_model = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     reranker_model = os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 

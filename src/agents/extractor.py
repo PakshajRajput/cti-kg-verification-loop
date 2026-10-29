@@ -15,7 +15,10 @@ from typing import Any
 
 import numpy as np
 from rich.console import Console
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = Any  # type: ignore
 
 from src.agents.llm_client import PRIMARY_MODEL, call_llm_json
 

@@ -33,6 +33,19 @@ def sha256_file(path: Path) -> str | None:
     return digest.hexdigest()
 
 
+def resolve_configured_fallback_model() -> str:
+    """Return the configured fallback model name from environment or project default."""
+    env_model = os.environ.get("FALLBACK_MODEL")
+    if env_model:
+        return env_model
+    try:
+        from src.agents.llm_client import FALLBACK_MODEL
+        return FALLBACK_MODEL
+    except Exception:
+        provider = os.environ.get("LLM_PROVIDER", "groq").lower()
+        return "openai/gpt-oss-20b" if provider == "groq" else "gpt-4o-mini"
+
+
 def dataset_fingerprint(reports: Iterable[CTIReport]) -> str:
     """Hash stable report/annotation content without exposing report text in output."""
     digest = hashlib.sha256()
@@ -123,7 +136,7 @@ def build_experiment_manifest(
         "models": {
             "provider": os.environ.get("LLM_PROVIDER", "groq").lower(),
             "llm_configured_primary": model,
-            "llm_configured_fallback": os.environ.get("FALLBACK_MODEL", "llama-3.1-8b-instant"),
+            "llm_configured_fallback": resolve_configured_fallback_model(),
             "embedding": embedding_model,
             "reranker": reranker_model if condition in {"full", "both"} else None,
         },
@@ -185,7 +198,7 @@ def build_audit_record(
         "report_id": report.id,
         "model": model,
         "llm_provider": os.environ.get("LLM_PROVIDER", "groq").lower(),
-        "configured_fallback_model": os.environ.get("FALLBACK_MODEL", "llama-3.1-8b-instant"),
+        "configured_fallback_model": resolve_configured_fallback_model(),
         "dataset_mode": dataset_mode,
         "ground_truth_triplets": _json_model(report.ground_truth_triplets),
         "raw_triplets": _json_model(result.raw_triplets),
