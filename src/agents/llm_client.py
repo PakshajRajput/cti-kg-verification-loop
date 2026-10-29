@@ -83,11 +83,11 @@ def call_llm(
             primary_call = lambda: groq_client.chat.completions.create(
                 messages=messages, model=primary_model,
                 max_tokens=max_tokens, temperature=temperature,
-            ).choices[0].message.content
+            )
             fallback_call = lambda: groq_client.chat.completions.create(
                 messages=messages, model=FALLBACK_MODEL,
                 max_tokens=max_tokens, temperature=temperature,
-            ).choices[0].message.content
+            )
         elif LLM_PROVIDER == "huggingface":
             provider = "huggingface"
             primary_client = hf_primary_client
@@ -98,10 +98,10 @@ def call_llm(
                 )
             primary_call = lambda: primary_client.chat.completions.create(
                 messages=messages, max_tokens=max_tokens, temperature=temperature,
-            ).choices[0].message.content
+            )
             fallback_call = lambda: hf_fallback_client.chat.completions.create(
                 messages=messages, max_tokens=max_tokens, temperature=temperature,
-            ).choices[0].message.content
+            )
         elif LLM_PROVIDER == "openai":
             if not openai_client:
                 raise RuntimeError("OpenAI client is not initialized. Please set OPENAI_API_KEY.")
@@ -109,18 +109,20 @@ def call_llm(
             primary_call = lambda: openai_client.chat.completions.create(
                 messages=messages, model=primary_model,
                 max_tokens=max_tokens, temperature=temperature,
-            ).choices[0].message.content
+            )
             fallback_call = lambda: openai_client.chat.completions.create(
                 messages=messages, model=FALLBACK_MODEL,
                 max_tokens=max_tokens, temperature=temperature,
-            ).choices[0].message.content
+            )
         else:
             raise ValueError(f"Unsupported LLM_PROVIDER: {LLM_PROVIDER}")
 
         try:
-            content = primary_call()
+            response = primary_call()
+            content = response.choices[0].message.content
+            served_model = getattr(response, "model", None) or primary_model
             _log_model_call(
-                requested_model=primary_model, actual_model=primary_model,
+                requested_model=primary_model, actual_model=str(served_model),
                 provider=provider, outcome="success",
             )
             return content
@@ -133,9 +135,11 @@ def call_llm(
             print(f"Primary ({primary_model}) failed on attempt {attempt + 1}: {error}")
 
         try:
-            content = fallback_call()
+            response = fallback_call()
+            content = response.choices[0].message.content
+            served_model = getattr(response, "model", None) or FALLBACK_MODEL
             _log_model_call(
-                requested_model=primary_model, actual_model=FALLBACK_MODEL,
+                requested_model=primary_model, actual_model=str(served_model),
                 provider=provider, outcome="fallback_success",
             )
             return content
