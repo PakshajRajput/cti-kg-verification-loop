@@ -1,9 +1,12 @@
 """Small, dependency-light helpers for per-report experiment audit logging."""
 from __future__ import annotations
 
+import hashlib
 import json
+import platform
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from src.ingestion.models import CTIReport, PipelineResult
 
@@ -17,6 +20,109 @@ def _json_model(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(key): _json_model(item) for key, item in value.items()}
     return value
+
+
+def sha256_file(path: Path) -> str | None:
+    """Return a file hash, or None when the optional file is unavailable."""
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def dataset_fingerprint(reports: Iterable[CTIReport]) -> str:
+    """Hash stable report/annotation content without exposing report text in output."""
+    digest = hashlib.sha256()
+    records = []
+    for report in sorted(reports, key=lambda item: item.id):
+        records.append({
+            "id": report.id,
+            "source": report.source,
+            "text_sha256": hashlib.sha256(report.text.encode("utf-8")).hexdigest(),
+            "ground_truth_triplets": _json_model(report.ground_truth_triplets),
+        })
+    encoded = json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest.update(encoded)
+    return digest.hexdigest()
+
+
+def build_experiment_manifest(
+    *,
+    started_at_utc: str,
+    condition: str,
+    model: str,
+    embedding_model: str,
+    reranker_model: str,
+    seed: int,
+    test_split: float,
+    subset: int,
+    train_reports: list[CTIReport],
+    test_reports: list[CTIReport],
+    dataset_mode: str,
+    allow_synthetic_data: bool,
+    project_root: Path,
+) -> dict[str, Any]:
+    """Build a reproducibility manifest without serializing report bodies."""
+    prompt_paths = {
+        "extractor_system": project_root / "src/agents/prompts/extractor_system.txt",
+        "extractor_few_shot_template": project_root / "src/agents/prompts/extractor_few_shot.txt",
+        "verifier_system": project_root / "src/agents/prompts/verifier_system.txt",
+    }
+    code_paths = {
+        "evaluator": project_root / "src/evaluation/evaluator.py",
+        "pipeline_runner": project_root / "src/pipeline/runner.py",
+        "pipeline_graph": project_root / "src/pipeline/graph.py",
+        "canonicalizer": project_root / "src/agents/canonicalizer.py",
+        "verifier": project_root / "src/agents/verifier.py",
+        "extractor": project_root / "src/agents/extractor.py",
+        "dependencies": project_root / "pyproject.toml",
+    }
+    synthetic_ids = sorted(
+        report.id for report in [*train_reports, *test_reports]
+        if report.id.startswith("synthetic_")
+    )
+    return {
+        "schema_version": 1,
+        "started_at_utc": started_at_utc,
+        "git_commit": __import__("os").environ.get("GITHUB_SHA") or __import__("os").environ.get("GIT_COMMIT_SHA"),
+        "python_version": platform.python_version(),
+        "condition": condition,
+        "models": {
+            "llm": model,
+            "embedding": embedding_model,
+            "reranker": reranker_model if condition in {"full", "both"} else None,
+        },
+        "configuration": {
+            "seed": seed,
+            "test_split_fraction": test_split,
+            "subset_limit": subset,
+            "few_shot_k": 5,
+            "rag_top_k": 5 if condition in {"full", "both"} else None,
+            "similarity_threshold": 0.85,
+        },
+        "dataset": {
+            "mode": dataset_mode,
+            "allow_synthetic_data": allow_synthetic_data,
+            "report_count": len(train_reports) + len(test_reports),
+            "train_count": len(train_reports),
+            "evaluated_test_count": len(test_reports),
+            "synthetic_report_ids": synthetic_ids,
+            "train_report_ids": [report.id for report in train_reports],
+            "test_report_ids": [report.id for report in test_reports],
+            "fingerprint_sha256": dataset_fingerprint([*train_reports, *test_reports]),
+        },
+        "prompt_sha256": {name: sha256_file(path) for name, path in prompt_paths.items()},
+        "implementation_sha256": {name: sha256_file(path) for name, path in code_paths.items()},
+    }
+
+
+def write_json(path: Path, value: dict[str, Any]) -> None:
+    """Write a stable, human-readable JSON artifact."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def build_audit_record(
