@@ -119,6 +119,8 @@ python -m src.evaluation.run_evaluation --subset 20 --condition both
 
 Results saved to `results/evaluation_results.json`. Plots saved to `results/figures/`.
 
+**Research evaluation note:** the loader now refuses to silently mix synthetic examples into the real dataset when fewer than 10 annotated reports are found. For a demo-only run, explicitly opt in with `--allow-synthetic-data`; never report those mixed-data results as benchmark results. The JSON output records the selected dataset mode and evaluated report IDs. See [the evaluation protocol](docs/evaluation_protocol.md).
+
 ### 7. Start the API Server
 
 ```bash
@@ -172,7 +174,7 @@ curl -X POST http://localhost:8000/extract \
 | Triplet Precision | Fraction of predicted triplets matching ground truth |
 | Triplet Recall | Fraction of ground-truth triplets recovered |
 | Triplet F1 | Harmonic mean of Precision and Recall |
-| Hallucination Rate | Fraction of predicted triplets rejected by verifier |
+| Verifier Rejection Rate | Fraction of extracted triplets rejected by the verifier; not ground-truth-confirmed hallucination rate |
 
 ---
 
