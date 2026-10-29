@@ -137,6 +137,7 @@ class PipelineState(BaseModel):
     # Extractor outputs. Keep the latest attempt as well as the total count.
     raw_triplets: list[Triplet] = Field(default_factory=list)
     raw_triplets_by_iteration: list[list[Triplet]] = Field(default_factory=list)
+    canonical_triplets_by_iteration: list[list[Triplet]] = Field(default_factory=list)
     total_raw_triplets_all_iterations: int = 0
     # Canonicalizer outputs
     canonical_triplets: list[Triplet] = Field(default_factory=list)
