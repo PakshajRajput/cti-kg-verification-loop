@@ -85,6 +85,7 @@ def build_experiment_manifest(
         "canonicalizer": project_root / "src/agents/canonicalizer.py",
         "verifier": project_root / "src/agents/verifier.py",
         "llm_client": project_root / "src/agents/llm_client.py",
+        "llm_call_audit": project_root / "src/agents/llm_call_audit.py",
         "extractor": project_root / "src/agents/extractor.py",
         "dependencies": project_root / "pyproject.toml",
     }
