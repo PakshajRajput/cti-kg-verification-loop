@@ -30,6 +30,7 @@ from src.ingestion.models import (
     VerificationDecision,
     VerificationVerdict,
 )
+from src.pipeline.verification_response import parse_verification_response as _parse_verification_response
 from src.pipeline.verification_state import apply_verification_outputs
 from src.rag.hybrid_retriever import HybridRetriever
 
@@ -57,54 +58,6 @@ def _format_context(retrieved: list[dict]) -> str:
             f"{hit.get('document', '')[:600]}"
         )
     return "\n\n".join(parts)
-
-
-def _parse_verification_response(raw: str) -> dict:
-    """Parse verifier LLM JSON output. Robust to markdown fences and truncation."""
-    raw = re.sub(r"```(?:json)?", "", raw).strip()
-    
-    # Try standard JSON parse first
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
-            
-    # Fallback: manually extract fields using regex if JSON is malformed or truncated
-    lower_raw = raw.lower()
-    
-    # Extract verdict
-    verdict_match = re.search(r'"verdict"\s*:\s*"([^"]+)"', raw, re.IGNORECASE)
-    if verdict_match:
-        verdict = verdict_match.group(1).lower()
-        if verdict not in ["valid", "corrected", "hallucinated"]:
-            raise ValueError(f"Unsupported verifier verdict: {verdict!r}")
-    else:
-        # Fallback to conservative keyword matching. Never interpret an
-        # unparseable response as a positive verification verdict.
-        if "hallucinated" in lower_raw or "invalid" in lower_raw or "rejected" in lower_raw:
-            verdict = "hallucinated"
-        elif "corrected" in lower_raw:
-            verdict = "hallucinated"  # No reliable corrected triplet was recovered.
-        elif re.search(r"""["']?verdict["']?\s*[:=]\s*["']?valid\b""", raw, re.IGNORECASE):
-            verdict = "valid"
-        else:
-            raise ValueError("Verifier response did not contain a recognizable verdict")
-            
-    # Extract reasoning
-    reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', raw, re.IGNORECASE)
-    if reasoning_match:
-        reasoning = reasoning_match.group(1)
-    else:
-        # Just use the raw string (truncated if too long)
-        reasoning = raw[:200] + "..." if len(raw) > 200 else raw
-        
-    return {
-        "verdict": verdict,
-        "corrected_triplet": None,  # Difficult to parse reliably without valid JSON
-        "reasoning": f"(Recovered via fallback) {reasoning}"
-    }
 
 
 class VerifierAgent:
