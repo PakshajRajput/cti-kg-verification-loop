@@ -17,7 +17,7 @@ import numpy as np
 from rich.console import Console
 from sentence_transformers import SentenceTransformer
 
-from src.agents.llm_client import call_llm_json
+from src.agents.llm_client import PRIMARY_MODEL, call_llm_json
 
 from src.ingestion.models import CTIReport, EntityType, PipelineState, Triplet
 
@@ -294,7 +294,7 @@ class ExtractorAgent:
     def __init__(
         self,
         demonstrations: list[CTIReport],
-        model: str = "gpt-4o",
+        model: str = PRIMARY_MODEL,
         embedding_model: str = "all-MiniLM-L6-v2",
         few_shot_k: int = 5,
         max_report_chars: int = 2500,
@@ -316,6 +316,7 @@ class ExtractorAgent:
             ],
             temperature=0.0,
             max_tokens=2048,
+            model=self.model,
         )
 
     def extract(self, report: CTIReport, feedback: str = "") -> list[Triplet]:
@@ -358,8 +359,6 @@ class ExtractorAgent:
 
         try:
             data, recovery_method, _ = self._call_llm(user_message)
-            if data is None:
-                data = []
         except Exception as e:
             # Fail the report instead of converting an unavailable LLM into
             # an apparently valid empty extraction result.
@@ -367,7 +366,13 @@ class ExtractorAgent:
             raise RuntimeError(
                 f"Extractor LLM failed for report {report.id!r}: {e}"
             ) from e
-            
+
+        if data is None or recovery_method == "failed":
+            raise RuntimeError(
+                f"Extractor returned no parseable JSON for report {report.id!r} "
+                f"(recovery_method={recovery_method!r})"
+            )
+
         elapsed = time.time() - start_time
         
         triplets = _parse_triplets(data)
