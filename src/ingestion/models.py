@@ -99,6 +99,7 @@ class VerificationDecision(BaseModel):
     """Verifier agent's decision for a single triplet."""
     original_triplet: Triplet
     verdict: VerificationVerdict
+    iteration: int = 1
     corrected_triplet: Optional[Triplet] = None
     reasoning: str = ""
     retrieved_context_ids: list[str] = Field(default_factory=list)
