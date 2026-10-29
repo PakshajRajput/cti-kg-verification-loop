@@ -1,6 +1,11 @@
 import json
 
-from src.evaluation.audit_log import build_audit_record, write_jsonl_record
+from src.evaluation.audit_log import (
+    build_audit_record,
+    build_experiment_manifest,
+    dataset_fingerprint,
+    write_jsonl_record,
+)
 from src.ingestion.models import (
     CTIReport,
     EntityType,
@@ -77,3 +82,54 @@ def test_write_jsonl_record_appends_independent_parseable_records(tmp_path):
 
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert [row["report_id"] for row in rows] == ["a", "b"]
+
+
+def test_dataset_fingerprint_is_stable_and_changes_when_report_changes():
+    base = CTIReport(
+        id="r1",
+        source="dataset",
+        text="one report",
+        ground_truth_triplets=[make_triplet()],
+    )
+    reordered = CTIReport(
+        id="r1",
+        source="dataset",
+        text="one report",
+        ground_truth_triplets=[make_triplet()],
+    )
+    changed = CTIReport(
+        id="r1",
+        source="dataset",
+        text="different report",
+        ground_truth_triplets=[make_triplet()],
+    )
+
+    assert dataset_fingerprint([base]) == dataset_fingerprint([reordered])
+    assert dataset_fingerprint([base]) != dataset_fingerprint([changed])
+
+
+def test_experiment_manifest_records_reproducibility_without_report_text(tmp_path):
+    train = [CTIReport(id="train-1", text="training text", ground_truth_triplets=[make_triplet()])]
+    test = [CTIReport(id="test-1", text="held out text", ground_truth_triplets=[make_triplet()])]
+    manifest = build_experiment_manifest(
+        started_at_utc="2026-10-29T00:00:00+00:00",
+        condition="both",
+        model="test-llm",
+        embedding_model="test-embedding",
+        reranker_model="test-reranker",
+        seed=42,
+        test_split=0.2,
+        subset=1,
+        train_reports=train,
+        test_reports=test,
+        dataset_mode="real_data",
+        allow_synthetic_data=False,
+        project_root=tmp_path,
+    )
+
+    assert manifest["configuration"]["seed"] == 42
+    assert manifest["dataset"]["train_report_ids"] == ["train-1"]
+    assert manifest["dataset"]["test_report_ids"] == ["test-1"]
+    assert len(manifest["dataset"]["fingerprint_sha256"]) == 64
+    assert "training text" not in json.dumps(manifest)
+    assert manifest["prompt_sha256"]["extractor_system"] is None
