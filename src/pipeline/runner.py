@@ -18,6 +18,7 @@ from rich.console import Console
 from src.agents.canonicalizer import CanonicalizerAgent
 from src.agents.extractor import ExtractorAgent
 from src.agents.verifier import VerifierAgent
+from src.agents.llm_client import PRIMARY_MODEL
 from src.ingestion.models import CTIReport, PipelineResult, PipelineState
 from src.pipeline.graph import build_pipeline_graph
 from src.rag.hybrid_retriever import HybridRetriever
@@ -28,7 +29,7 @@ console = Console()
 @dataclass
 class PipelineConfig:
     """Configuration for the full pipeline."""
-    model: str = "gpt-4o"
+    model: str = PRIMARY_MODEL
     embedding_model: str = "all-MiniLM-L6-v2"
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     few_shot_k: int = 5
