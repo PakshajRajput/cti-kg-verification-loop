@@ -100,6 +100,8 @@ def build_experiment_manifest(
         "llm_call_audit": project_root / "src/agents/llm_call_audit.py",
         "extractor": project_root / "src/agents/extractor.py",
         "dependencies": project_root / "pyproject.toml",
+        "research_preflight": project_root / "scripts/validate_research_inputs.py",
+        "research_benchmark_workflow": project_root / ".github/workflows/research-benchmark.yml",
     }
     full_test_reports = full_test_split_reports if full_test_split_reports is not None else test_reports
     all_dataset_reports = [*train_reports, *full_test_reports]
