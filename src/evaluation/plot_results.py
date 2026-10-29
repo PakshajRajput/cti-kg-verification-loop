@@ -3,7 +3,7 @@ Results visualization script.
 
 Reads results/evaluation_results.json and generates:
   1. Grouped bar chart: Precision/Recall/F1 for baseline vs. full pipeline
-  2. Hallucination rate comparison bar chart
+  2. Verifier rejection-rate chart (N/A for baseline; not a hallucination-rate estimate)
   3. Entity-level F1 comparison
 
 Saves all plots to results/figures/ as high-res PNG.
@@ -87,7 +87,7 @@ def main(
     # ── Plot 1: Triplet P/R/F1 Comparison ────────────────────────────────────
     _plot_prf1(results, figures_path, metadata)
 
-    # ── Plot 2: Hallucination Rate ────────────────────────────────────────────
+    # ── Plot 2: Verifier Rejection Rate ────────────────────────────────────────
     _plot_hallucination_rate(results, figures_path, metadata)
 
     # ── Plot 3: Entity F1 ────────────────────────────────────────────────────
@@ -142,50 +142,52 @@ def _plot_prf1(results: list[dict], figures_path: Path, metadata: dict):
 
 
 def _plot_hallucination_rate(results: list[dict], figures_path: Path, metadata: dict):
-    """Bar chart: hallucination rate per condition."""
+    """Plot final-pass verifier rejection rate; show N/A for conditions without a verifier."""
     conditions = [r["condition"] for r in results]
-    hall_rates = [r["hallucination_rate"] * 100 for r in results]  # Convert to %
+    rates = []
+    for result in results:
+        rate = result.get("rejection_rate")
+        if rate is None:
+            rate = result.get("hallucination_rate")
+        rates.append(rate)
 
     colors = [COLORS.get(c, "#888") for c in conditions]
     labels = [CONDITION_LABELS.get(c, c) for c in conditions]
+    heights = [float(rate) * 100 if rate is not None else 0.0 for rate in rates]
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    bars = ax.bar(labels, hall_rates, color=colors, alpha=0.88, width=0.4, zorder=3)
+    bars = ax.bar(labels, heights, color=colors, alpha=0.88, width=0.4, zorder=3)
 
-    for bar, val in zip(bars, hall_rates):
+    for bar, rate in zip(bars, rates):
+        if rate is None:
+            bar.set_facecolor("none")
+            bar.set_edgecolor("#888888")
+            bar.set_hatch("//")
+            label = "N/A"
+            value = 0.5
+        else:
+            label = f"{float(rate) * 100:.1f}%"
+            value = bar.get_height() + 0.5
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.5,
-            f"{val:.1f}%",
+            value,
+            label,
             ha="center", va="bottom", fontsize=10, fontweight="bold",
         )
 
-    ax.set_ylabel("Hallucination Rate (%)")
+    ax.set_ylabel("Rejected triplets (%)")
     ax.set_title(
-        "Hallucination Rate: Baseline vs. Full Pipeline\n"
-        "(Lower is better — fraction of triplets rejected by verifier)",
+        "Final-Pass Verifier Rejection Rate by Condition\n"
+        "(Process metric, not a validated hallucination rate)",
         pad=10,
     )
-    ax.set_ylim(0, max(hall_rates + [10]) * 1.3)
-
-    # Annotation for full pipeline bar
-    if len(conditions) == 2 and conditions[0] == "baseline" and conditions[1] == "full_pipeline":
-        reduction = hall_rates[0] - hall_rates[1]
-        if reduction > 0:
-            ax.annotate(
-                f"−{reduction:.1f}pp reduction",
-                xy=(1, hall_rates[1]),
-                xytext=(0.5, max(hall_rates) * 0.7),
-                fontsize=9, color="green",
-                arrowprops=dict(arrowstyle="->", color="green"),
-            )
+    ax.set_ylim(0, max(heights + [10]) * 1.3)
 
     plt.tight_layout()
-    out = figures_path / "hallucination_rate.png"
+    out = figures_path / "rejection_rate.png"
     plt.savefig(out, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"  Saved: {out}")
-
 
 def _plot_entity_f1(results: list[dict], figures_path: Path, metadata: dict):
     """Bar chart: entity-level F1 comparison."""
