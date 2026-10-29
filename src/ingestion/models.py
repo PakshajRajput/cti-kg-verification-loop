@@ -167,6 +167,7 @@ class PipelineResult(BaseModel):
     total_raw_triplets: int = 0
     raw_triplets: list[Triplet] = Field(default_factory=list)
     raw_triplets_by_iteration: list[list[Triplet]] = Field(default_factory=list)
+    canonical_triplets_by_iteration: list[list[Triplet]] = Field(default_factory=list)
     canonical_triplets: list[Triplet] = Field(default_factory=list)
     verified_triplets: list[Triplet] = Field(default_factory=list)
     error: Optional[str] = None
