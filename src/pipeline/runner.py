@@ -106,6 +106,7 @@ class PipelineRunner:
                 total_raw_triplets=final_state.total_raw_triplets_all_iterations,
                 raw_triplets=final_state.raw_triplets,
                 raw_triplets_by_iteration=final_state.raw_triplets_by_iteration,
+                canonical_triplets_by_iteration=final_state.canonical_triplets_by_iteration,
                 canonical_triplets=final_state.canonical_triplets,
                 verified_triplets=final_state.verified_triplets,
                 error=final_state.error,
