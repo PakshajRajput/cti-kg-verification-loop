@@ -76,7 +76,7 @@ def _log_model_call(
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, sort_keys=True) + "\\n")
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
     except OSError as error:
         # Do not change model-call success/failure because an optional audit
         # filesystem write failed; emit a warning for the missing attribution.
