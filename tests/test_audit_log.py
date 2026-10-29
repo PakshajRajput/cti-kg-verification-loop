@@ -44,6 +44,7 @@ def test_audit_record_serializes_all_pipeline_stages_without_report_text():
         raw_triplets=[raw],
         raw_triplets_by_iteration=[[raw]],
         total_raw_triplets=1,
+        canonical_triplets_by_iteration=[[canonical]],
         canonical_triplets=[canonical],
         final_triplets=[corrected],
         verified_triplets=[corrected],
@@ -62,6 +63,7 @@ def test_audit_record_serializes_all_pipeline_stages_without_report_text():
     )
 
     assert record["raw_triplets"][0]["entity1_type"] == "ThreatActor"
+    assert record["canonical_triplets_by_iteration"][0][0]["entity2"] == "Cobalt Strike"
     assert record["verification_decisions"][0]["verdict"] == "corrected"
     assert record["ground_truth_triplets"][0]["entity1"] == "APT29"
     assert "text" not in record
