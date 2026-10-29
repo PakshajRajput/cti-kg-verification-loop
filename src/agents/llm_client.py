@@ -53,35 +53,7 @@ elif LLM_PROVIDER == "openai":
     else:
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-def _log_model_call(
-    *,
-    requested_model: str,
-    actual_model: str,
-    provider: str,
-    outcome: str,
-) -> None:
-    """Append minimal request-level model attribution without prompt or secret data."""
-    from datetime import datetime, timezone
-    from pathlib import Path
-
-    path = Path(os.environ.get("LLM_CALL_AUDIT_PATH", "results/llm_call_audit.jsonl"))
-    record = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "provider": provider,
-        "requested_model": requested_model,
-        "actual_model": actual_model,
-        "outcome": outcome,
-    }
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, sort_keys=True) + "\n")
-    except OSError as error:
-        # Do not change model-call success/failure because an optional audit
-        # filesystem write failed; emit a warning for the missing attribution.
-        print(f"[WARN] Unable to write LLM call audit record: {error}")
-
-
+from src.agents.llm_call_audit import log_model_call as _log_model_call
 @traceable(name="LLM Call")
 def call_llm(
     messages: List[Dict[str, str]],
