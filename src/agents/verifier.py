@@ -200,14 +200,20 @@ class VerifierAgent:
                 raw = self._call_llm(triplet, context)
                 parsed = _parse_verification_response(raw)
             except Exception as e:
-                console.print(f"[yellow]Verifier LLM failed for triplet '{triplet.to_text()}': {e}[/yellow]")
-                parsed = {"verdict": "valid", "corrected_triplet": None, "reasoning": f"LLM error: {e}"}
+                # Never convert infrastructure/LLM failures into a positive
+                # verification verdict; doing so would bias reported metrics.
+                raise RuntimeError(
+                    f"Verifier LLM failed for triplet {triplet.to_text()!r}: {e}"
+                ) from e
 
-            verdict_str = parsed.get("verdict", "valid").lower()
+            verdict_str = str(parsed.get("verdict", "")).lower()
             try:
                 verdict = VerificationVerdict(verdict_str)
-            except ValueError:
-                verdict = VerificationVerdict.VALID
+            except ValueError as e:
+                raise RuntimeError(
+                    f"Verifier returned an unsupported verdict {verdict_str!r} "
+                    f"for triplet {triplet.to_text()!r}"
+                ) from e
 
             corrected = self._parse_corrected_triplet(parsed.get("corrected_triplet"))
             reasoning = str(parsed.get("reasoning", ""))
@@ -285,7 +291,13 @@ def make_verifier_node(agent: VerifierAgent):
         pipeline_state.verifier_ran = True
 
         if not triplets:
+            # An empty final retry is a real empty result. Clear outputs from
+            # earlier attempts while retaining their decision history.
+            pipeline_state.verified_triplets = []
+            pipeline_state.rejected_triplets = []
+            pipeline_state.revised_triplets = []
             pipeline_state.needs_reextraction = False
+            pipeline_state.reextraction_feedback = ""
             return pipeline_state.model_dump()
 
         verified, rejected, decisions, needs_reextraction = agent.verify_triplets(triplets)
