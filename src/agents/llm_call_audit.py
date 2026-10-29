@@ -30,3 +30,10 @@ def log_model_call(
     except OSError as error:
         # Logging failures must not alter whether the actual model call succeeded.
         print(f"[WARN] Unable to write LLM call audit record: {error}")
+
+
+
+def resolve_served_model(response: object, default_model: str) -> str:
+    """Use the model ID reported in a provider response, falling back to requested ID."""
+    served_model = getattr(response, "model", None)
+    return str(served_model or default_model)
