@@ -129,7 +129,12 @@ def evaluate_pipeline_run(
         return sum(float(row[metric]) for row in report_results) / len(report_results) if report_results else 0.0
 
     # Macro metrics average report-level scores, complementing pooled micro scores.
-    rejection_rate = compute_rejection_rate(all_rejected, total_extracted)
+    # Baseline has no verifier, so rejection rate is not applicable rather than zero.
+    rejection_rate = (
+        compute_rejection_rate(all_rejected, total_extracted)
+        if rejected_by_report is not None
+        else None
+    )
     return EvalMetrics(
         condition=condition,
         precision=round(micro_p, 4),
@@ -139,8 +144,8 @@ def evaluate_pipeline_run(
         entity_recall=round(emicro_r, 4),
         entity_f1=round(emicro_f, 4),
         # Backward-compatible field; use rejection_rate for new analyses.
-        hallucination_rate=round(rejection_rate, 4),
-        rejection_rate=round(rejection_rate, 4),
+        hallucination_rate=round(rejection_rate, 4) if rejection_rate is not None else None,
+        rejection_rate=round(rejection_rate, 4) if rejection_rate is not None else None,
         macro_precision=round(macro("precision"), 4),
         macro_recall=round(macro("recall"), 4),
         macro_f1=round(macro("f1"), 4),
