@@ -4,7 +4,7 @@
 
 - **Triplet precision/recall/F1** use exact normalized (subject, relation, object) matches. Matching is performed inside each report, so a prediction for one report cannot be credited because it appears in another report's annotations.
 - **Entity precision/recall/F1** evaluate the set of normalized entity strings per report.
-- **Verifier rejection rate** is rejected triplets divided by extracted triplets. This is a process metric, not a validated hallucination rate: a verifier may reject a correct relation or accept an incorrect one.
+- **Verifier rejection rate** is the fraction of triplets rejected in the final verifier pass. It is a process metric, not a validated hallucination rate: a verifier may reject a correct relation or accept an incorrect one. Baseline runs report this metric as not applicable because no verifier is run.
 - **Micro metrics** pool report-local true-positive, prediction, and gold counts. **Macro metrics** average per-report scores, giving each report equal weight. Both are emitted in the evaluation JSON.
 
 The legacy `hallucination_rate` field remains for compatibility. New analysis should use `rejection_rate` and must not describe it as a measured hallucination rate without independent adjudication.
