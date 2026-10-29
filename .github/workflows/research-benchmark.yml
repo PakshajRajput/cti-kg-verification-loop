@@ -103,7 +103,7 @@ jobs:
                   f"Missing repository Actions secret {secret_name}. "
                   "Add the provider credential under Settings > Secrets and variables > Actions."
               )
-          print(f"Parameters validated: provider={provider}, model={os.environ['PRIMARY_MODEL']}, subset={subset}, split={split}")
+          print(f"Parameters validated: provider={provider}, model={os.environ['PRIMARY_MODEL']}, subset={subset_value}, split={split}")
           PY
 
       - name: Install project dependencies
