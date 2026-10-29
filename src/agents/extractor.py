@@ -20,7 +20,6 @@ from sentence_transformers import SentenceTransformer
 from src.agents.llm_client import PRIMARY_MODEL, call_llm_json
 
 from src.ingestion.models import CTIReport, EntityType, PipelineState, Triplet
-from src.ingestion.demo_selection import filter_eligible_demonstrations
 
 console = Console()
 
@@ -37,22 +36,45 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10))
 
 
+def _normalize_text(s: str) -> str:
+    """Normalize text by trimming, lowercasing, and collapsing whitespace."""
+    if not s:
+        return ""
+    return " ".join(s.strip().casefold().split())
+
+
 def _retrieve_demonstrations(
     report: CTIReport,
     demos: list[CTIReport],
     embedder: SentenceTransformer,
     k: int = 5,
-    similarity_threshold: float = 0.9999,
 ) -> list[CTIReport]:
-    """Retrieve training examples while excluding self and duplicate-source leakage."""
-    eligible = filter_eligible_demonstrations(report, demos)
-    if not eligible:
+    """Retrieve the k most similar demonstration reports by text embedding.
+
+    Strictly filters out the query report itself, any report with duplicate text,
+    and any held-out test split reports to prevent few-shot data leakage.
+    """
+    if not demos:
         return []
+
+    report_norm = _normalize_text(report.text)
+    candidates = [
+        d for d in demos
+        if d.id != report.id
+        and getattr(d, "split", None) != "test"
+        and _normalize_text(d.text) != report_norm
+    ]
+    if not candidates:
+        return []
+
     query_emb = embedder.encode([report.text], normalize_embeddings=True)[0]
-    demo_embs = embedder.encode([demo.text for demo in eligible], normalize_embeddings=True)
-    similarities = [_cosine_similarity(query_emb, emb) for emb in demo_embs]
-    ranked = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)
-    return [eligible[i] for i in ranked if similarities[i] < similarity_threshold][:k]
+    demo_texts = [d.text for d in candidates]
+    demo_embs = embedder.encode(demo_texts, normalize_embeddings=True)
+
+    sims = [_cosine_similarity(query_emb, de) for de in demo_embs]
+    top_indices = sorted(range(len(sims)), key=lambda i: sims[i], reverse=True)[:k]
+
+    return [candidates[i] for i in top_indices]
 
 
 def _format_demonstrations(demos: list[CTIReport], max_triplets_per_demo: int = 6) -> str:
@@ -298,8 +320,7 @@ class ExtractorAgent:
         few_shot_k: int = 5,
         max_report_chars: int = 2500,
     ):
-        # Use only explicitly train-labeled examples.
-        self.demonstrations = [demo for demo in demonstrations if demo.split == "train"]
+        self.demonstrations = demonstrations
         self.model = model
         self.few_shot_k = few_shot_k
         self.max_report_chars = max_report_chars

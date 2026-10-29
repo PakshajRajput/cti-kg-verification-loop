@@ -59,14 +59,13 @@ dev = [
     "httpx>=0.27.0",
 ]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-norecursedirs = ["data", ".git", ".venv", "venv", "build", "dist"]
-addopts = "-ra"
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
 
 [tool.setuptools.package-dir]
 "" = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["data*", ".pytest_temp"]

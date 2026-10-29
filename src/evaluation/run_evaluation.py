@@ -37,7 +37,14 @@ from src.ingestion.models import CTIReport, PipelineResult
 from src.pipeline.runner import PipelineConfig, PipelineRunner
 from src.rag.hybrid_retriever import HybridRetriever
 
-console = Console()
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+console = Console(legacy_windows=False)
 app = typer.Typer()
 
 
@@ -117,7 +124,7 @@ def main(
     llm_model = (
         model
         or os.environ.get("LLM_MODEL")
-        or os.environ.get("PRIMARY_MODEL", "openai/gpt-oss-120b")
+        or os.environ.get("PRIMARY_MODEL", "llama-3.3-70b-versatile")
     )
     embedding_model = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     reranker_model = os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
@@ -258,18 +265,23 @@ def main(
     console.print(f"\n[green]Results saved to {output_path}[/green]")
     console.print(f"[green]Per-report audit saved to {audit_path}[/green]")
 
-    table = Table(title="CTI Extraction Evaluation")
+    table = Table(title="CTI Extraction Evaluation (Micro & Macro Metrics)")
     table.add_column("Condition", style="cyan")
-    table.add_column("Precision", style="green")
-    table.add_column("Recall", style="green")
-    table.add_column("F1", style="bold green")
+    table.add_column("Micro P", style="green")
+    table.add_column("Micro R", style="green")
+    table.add_column("Micro F1", style="bold green")
+    table.add_column("Macro F1", style="bold magenta")
     table.add_column("Entity F1", style="yellow")
     table.add_column("Reject Rate", style="red")
     table.add_column("Reports", style="dim")
     for r in all_results:
         table.add_row(
-            r["condition"], f"{r['precision']:.4f}", f"{r['recall']:.4f}",
-            f"{r['f1']:.4f}", f"{r['entity_f1']:.4f}",
+            r["condition"],
+            f"{r['precision']:.4f}",
+            f"{r['recall']:.4f}",
+            f"{r['f1']:.4f}",
+            f"{r.get('macro_f1', 0.0):.4f}",
+            f"{r['entity_f1']:.4f}",
             (
                 f"{r['rejection_rate']:.4f}"
                 if r.get("rejection_rate") is not None

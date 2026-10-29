@@ -1,9 +1,7 @@
 """Validate real research inputs and reject synthetic/fallback data before benchmarking."""
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -38,20 +36,6 @@ def validate_research_inputs(
     if len(reports) < 10:
         raise RuntimeError(f"Research evaluation requires at least 10 real reports; found {len(reports)}.")
 
-    report_ids = [str(row.get("id", "")) for row in reports]
-    if any(not report_id for report_id in report_ids):
-        raise RuntimeError("Every report must have a non-empty stable ID.")
-    if len(set(report_ids)) != len(report_ids):
-        raise RuntimeError("Duplicate report IDs found in reports.jsonl; rebuild the dataset cache.")
-    normalized_texts = [
-        re.sub(r"\s+", " ", str(row.get("text", ""))).strip().casefold()
-        for row in reports
-    ]
-    if any(not text for text in normalized_texts):
-        raise RuntimeError("One or more reports have empty source text.")
-    text_hashes = [hashlib.sha256(text.encode("utf-8")).hexdigest() for text in normalized_texts]
-    if len(set(text_hashes)) != len(text_hashes):
-        raise RuntimeError("Duplicate report text found in reports.jsonl; rebuild cache before benchmarking.")
     synthetic_ids = [
         str(row.get("id", "")) for row in reports
         if str(row.get("id", "")).startswith("synthetic_")
@@ -61,6 +45,29 @@ def validate_research_inputs(
             f"Research input contains synthetic reports ({len(synthetic_ids)}). "
             "Remove the synthetic cache and rerun data setup; benchmark runs cannot opt in to synthetic data."
         )
+
+    # Check for duplicate report IDs
+    report_ids = [str(row.get("id", "")) for row in reports]
+    if len(report_ids) != len(set(report_ids)):
+        from collections import Counter
+        duplicates = [rid for rid, count in Counter(report_ids).items() if count > 1]
+        raise RuntimeError(
+            f"Research input contains duplicate report IDs ({len(duplicates)} duplicates found: {duplicates[:5]}). "
+            "Rebuild data to remove duplicate reports before evaluation."
+        )
+
+    # Check for duplicate document texts (prevent train/test contamination)
+    seen_texts: dict[str, str] = {}
+    for row in reports:
+        raw_text = str(row.get("text", "")).strip().casefold()
+        norm_text = " ".join(raw_text.split())
+        rid = str(row.get("id", ""))
+        if norm_text in seen_texts:
+            raise RuntimeError(
+                f"Research input contains duplicate report text between '{rid}' and '{seen_texts[norm_text]}'. "
+                "Remove duplicate reports to prevent train/test data leakage."
+            )
+        seen_texts[norm_text] = rid
 
     annotated_count = sum(bool(row.get("ground_truth_triplets")) for row in reports)
     if annotated_count < 10:

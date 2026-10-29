@@ -25,4 +25,4 @@ jobs:
       - name: Compile project and test Python files
         run: python -m compileall -q src tests
       - name: Run evaluator regression tests
-        run: python -m pytest -q
+        run: python -m pytest -q tests

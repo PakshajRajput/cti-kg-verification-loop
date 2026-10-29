@@ -107,7 +107,7 @@ def _plot_prf1(results: list[dict], figures_path: Path, metadata: dict):
     width = 0.22
     offsets = [-width, 0, width]
     metric_data = [precision, recall, f1]
-    metric_labels = ["Precision", "Recall", "F1"]
+    metric_labels = ["Micro Precision", "Micro Recall", "Micro F1"]
     metric_colors = ["#5B9BD5", "#70AD47", "#FF7C43"]
 
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -127,8 +127,8 @@ def _plot_prf1(results: list[dict], figures_path: Path, metadata: dict):
     ax.set_ylim(0, 1.1)
     ax.set_ylabel("Score")
     ax.set_title(
-        f"Triplet-Level Precision / Recall / F1\n"
-        f"Model: {metadata.get('model', 'GPT-4o')} | "
+        f"Triplet-Level Micro Precision / Recall / F1\n"
+        f"Model: {metadata.get('model', 'Configured Model')} | "
         f"Test reports: {metadata.get('num_test_reports', '?')}",
         pad=10,
     )

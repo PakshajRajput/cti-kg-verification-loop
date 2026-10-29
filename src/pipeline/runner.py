@@ -23,7 +23,16 @@ from src.ingestion.models import CTIReport, PipelineResult, PipelineState
 from src.pipeline.graph import build_pipeline_graph
 from src.rag.hybrid_retriever import HybridRetriever
 
-console = Console()
+import sys
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+console = Console(legacy_windows=False)
 
 
 @dataclass
@@ -90,7 +99,7 @@ class PipelineRunner:
 
     def run(self, report: CTIReport) -> PipelineResult:
         """Run pipeline for a report and return an auditable structured result."""
-        console.print(f"\n[bold cyan]─── Processing Report: {report.id} ───[/bold cyan]")
+        console.print(f"\n[bold cyan]--- Processing Report: {report.id} ---[/bold cyan]")
         initial_state = PipelineState(report=report)
         initial_state_dict = initial_state.model_dump()
 

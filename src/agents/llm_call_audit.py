@@ -13,16 +13,22 @@ def log_model_call(
     actual_model: str,
     provider: str,
     outcome: str,
+    report_id: str | None = None,
+    stage: str | None = None,
 ) -> None:
     """Append minimal request-level model attribution without prompt or secret data."""
     path = Path(os.environ.get("LLM_CALL_AUDIT_PATH", "results/llm_call_audit.jsonl"))
-    record = {
+    record: dict[str, Any] = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "provider": provider,
         "requested_model": requested_model,
         "actual_model": actual_model,
         "outcome": outcome,
     }
+    if report_id is not None:
+        record["report_id"] = report_id
+    if stage is not None:
+        record["stage"] = stage
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:

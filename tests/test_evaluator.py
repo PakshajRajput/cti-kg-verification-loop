@@ -80,20 +80,78 @@ def test_rejection_rate_is_zero_when_verifier_ran_and_rejected_nothing():
 
     assert result.rejection_rate == 0.0
     assert result.hallucination_rate == 0.0
+def test_predictions_with_empty_gold_yields_zero_metrics():
+    predicted = [triplet("APT29", "uses", "ToolX")]
+    gold = []
+    p, r, f = compute_triplet_f1(predicted, gold)
+    assert p == 0.0
+    assert r == 0.0
+    assert f == 0.0
 
 
+def test_gold_with_empty_predictions_yields_zero_metrics():
+    predicted = []
+    gold = [triplet("APT29", "uses", "ToolX")]
+    p, r, f = compute_triplet_f1(predicted, gold)
+    assert p == 0.0
+    assert r == 0.0
+    assert f == 0.0
 
-def test_pipeline_result_rejection_rate_uses_verified_denominator():
+
+def test_macro_versus_micro_metric_weighting_discrepancy():
+    # Report A: 1 prediction, 1 gold, matches -> P=1.0, R=1.0, F1=1.0
+    # Report B: 9 predictions, 9 gold, 0 match -> P=0.0, R=0.0, F1=0.0
+    predicted = {
+        "report-a": [triplet("APT29", "uses", "ToolA")],
+        "report-b": [triplet("APT29", "uses", f"WrongTool_{i}") for i in range(9)],
+    }
+    gold = {
+        "report-a": [triplet("APT29", "uses", "ToolA")],
+        "report-b": [triplet("APT29", "uses", f"GoldTool_{i}") for i in range(9)],
+    }
+    result = evaluate_pipeline_run("test", predicted, gold)
+    # Micro: 1 TP out of 10 predictions -> 0.1
+    assert result.precision == 0.1
+    assert result.recall == 0.1
+    assert result.f1 == 0.1
+    # Macro: (1.0 + 0.0) / 2 = 0.5
+    assert result.macro_precision == 0.5
+    assert result.macro_recall == 0.5
+    assert result.macro_f1 == 0.5
+
+
+def test_pipeline_result_rejection_rate_formula():
     from src.ingestion.models import PipelineResult
 
+    v1 = triplet("APT29", "uses", "ToolA")
+    v2 = triplet("APT29", "uses", "ToolB")
+    rej = triplet("APT29", "uses", "BadTool")
+
     result = PipelineResult(
-        report_id="r",
-        final_triplets=[triplet("APT29", "uses", "GoodTool")],
-        verified_triplets=[triplet("APT29", "uses", "GoodTool")],
-        rejected_triplets=[triplet("APT29", "uses", "BadTool")],
+        report_id="test-rep",
+        final_triplets=[v1],  # 1 final triplet after deduplication
+        verified_triplets=[v1, v2],  # 2 verified triplets
+        rejected_triplets=[rej],  # 1 rejected triplet
         revised_triplets=[],
         verification_decisions=[],
         iterations=1,
     )
-    assert result.rejection_rate == 0.5
-    assert result.hallucination_rate == result.rejection_rate
+    # Correct formula: len(rejected_triplets) / (len(verified_triplets) + len(rejected_triplets)) = 1 / (2 + 1) = 1/3
+    assert abs(result.rejection_rate - (1.0 / 3.0)) < 1e-6
+    assert abs(result.hallucination_rate - (1.0 / 3.0)) < 1e-6
+
+
+def test_pipeline_result_rejection_rate_handles_zero_triplets():
+    from src.ingestion.models import PipelineResult
+
+    result = PipelineResult(
+        report_id="test-rep",
+        final_triplets=[],
+        verified_triplets=[],
+        rejected_triplets=[],
+        revised_triplets=[],
+        verification_decisions=[],
+        iterations=1,
+    )
+    assert result.rejection_rate == 0.0
+    assert result.hallucination_rate == 0.0

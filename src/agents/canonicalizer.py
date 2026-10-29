@@ -116,7 +116,7 @@ class CanonicalizerAgent:
             resp = call_llm(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=64,
+                max_tokens=512,
                 model=self.model,
             )
             choice = resp.strip().strip('"')

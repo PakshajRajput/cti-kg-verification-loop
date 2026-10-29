@@ -12,9 +12,11 @@ load_dotenv()
 # ─── Configuration ─────────────────────────────────────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
-# Defaults reported working with the audited Groq configuration; override for other providers.
-PRIMARY_MODEL = os.getenv("LLM_MODEL") or os.getenv("PRIMARY_MODEL", "openai/gpt-oss-120b")
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "openai/gpt-oss-20b")
+_default_primary = "openai/gpt-oss-120b" if LLM_PROVIDER == "groq" else "gpt-4o"
+_default_fallback = "openai/gpt-oss-20b" if LLM_PROVIDER == "groq" else "gpt-4o-mini"
+
+PRIMARY_MODEL = os.getenv("LLM_MODEL") or os.getenv("PRIMARY_MODEL", _default_primary)
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", _default_fallback)
 
 # Provider clients
 groq_client = None
@@ -124,6 +126,8 @@ def call_llm(
         try:
             response = primary_call()
             content = response.choices[0].message.content
+            if content is None or not content.strip():
+                raise RuntimeError(f"Model {primary_model} returned empty completion")
             served_model = resolve_served_model(response, primary_model)
             _log_model_call(
                 requested_model=primary_model, actual_model=str(served_model),
@@ -141,6 +145,8 @@ def call_llm(
         try:
             response = fallback_call()
             content = response.choices[0].message.content
+            if content is None or not content.strip():
+                raise RuntimeError(f"Fallback model {FALLBACK_MODEL} returned empty completion")
             served_model = resolve_served_model(response, FALLBACK_MODEL)
             _log_model_call(
                 requested_model=primary_model, actual_model=str(served_model),
