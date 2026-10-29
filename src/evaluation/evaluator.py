@@ -134,9 +134,15 @@ def evaluate_pipeline_run(
         entity_precision=round(emicro_p, 4),
         entity_recall=round(emicro_r, 4),
         entity_f1=round(emicro_f, 4),
-        # Legacy schema field; this value is a verifier rejection rate, not
-        # ground-truth-validated hallucination rate. See metric_name below.
+        # Backward-compatible field; use rejection_rate for new analyses.
         hallucination_rate=round(rejection_rate, 4),
+        rejection_rate=round(rejection_rate, 4),
+        macro_precision=round(macro("precision"), 4),
+        macro_recall=round(macro("recall"), 4),
+        macro_f1=round(macro("f1"), 4),
+        macro_entity_precision=round(macro("entity_precision"), 4),
+        macro_entity_recall=round(macro("entity_recall"), 4),
+        macro_entity_f1=round(macro("entity_f1"), 4),
         total_extracted=total_extracted,
         total_verified=total_verified,
         total_rejected=all_rejected,
