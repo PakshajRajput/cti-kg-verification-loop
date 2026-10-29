@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -61,6 +61,7 @@ def build_experiment_manifest(
     subset: int,
     train_reports: list[CTIReport],
     test_reports: list[CTIReport],
+    full_test_split_reports: list[CTIReport] | None = None,
     dataset_mode: str,
     allow_synthetic_data: bool,
     project_root: Path,
@@ -73,6 +74,10 @@ def build_experiment_manifest(
     }
     code_paths = {
         "evaluator": project_root / "src/evaluation/evaluator.py",
+        "evaluation_runner": project_root / "src/evaluation/run_evaluation.py",
+        "audit_logger": project_root / "src/evaluation/audit_log.py",
+        "dataset_loader": project_root / "src/ingestion/dataset_loader.py",
+        "data_models": project_root / "src/ingestion/models.py",
         "pipeline_runner": project_root / "src/pipeline/runner.py",
         "pipeline_graph": project_root / "src/pipeline/graph.py",
         "canonicalizer": project_root / "src/agents/canonicalizer.py",
@@ -80,14 +85,16 @@ def build_experiment_manifest(
         "extractor": project_root / "src/agents/extractor.py",
         "dependencies": project_root / "pyproject.toml",
     }
+    full_test_reports = full_test_split_reports if full_test_split_reports is not None else test_reports
+    all_dataset_reports = [*train_reports, *full_test_reports]
     synthetic_ids = sorted(
-        report.id for report in [*train_reports, *test_reports]
+        report.id for report in all_dataset_reports
         if report.id.startswith("synthetic_")
     )
     return {
         "schema_version": 1,
         "started_at_utc": started_at_utc,
-        "git_commit": __import__("os").environ.get("GITHUB_SHA") or __import__("os").environ.get("GIT_COMMIT_SHA"),
+        "git_commit": os.environ.get("GITHUB_SHA") or os.environ.get("GIT_COMMIT_SHA"),
         "python_version": platform.python_version(),
         "condition": condition,
         "models": {
@@ -106,13 +113,15 @@ def build_experiment_manifest(
         "dataset": {
             "mode": dataset_mode,
             "allow_synthetic_data": allow_synthetic_data,
-            "report_count": len(train_reports) + len(test_reports),
+            "report_count": len(all_dataset_reports),
             "train_count": len(train_reports),
+            "full_test_split_count": len(full_test_reports),
             "evaluated_test_count": len(test_reports),
             "synthetic_report_ids": synthetic_ids,
             "train_report_ids": [report.id for report in train_reports],
-            "test_report_ids": [report.id for report in test_reports],
-            "fingerprint_sha256": dataset_fingerprint([*train_reports, *test_reports]),
+            "full_test_split_report_ids": [report.id for report in full_test_reports],
+            "evaluated_test_report_ids": [report.id for report in test_reports],
+            "fingerprint_sha256": dataset_fingerprint(all_dataset_reports),
         },
         "prompt_sha256": {name: sha256_file(path) for name, path in prompt_paths.items()},
         "implementation_sha256": {name: sha256_file(path) for name, path in code_paths.items()},
