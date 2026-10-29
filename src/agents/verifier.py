@@ -306,6 +306,10 @@ def make_verifier_node(agent: VerifierAgent):
         # across retries. Historical verifier decisions remain in the audit trail.
         pipeline_state.verified_triplets = verified
         pipeline_state.rejected_triplets = rejected
+        decisions = [
+            decision.model_copy(update={"iteration": pipeline_state.iteration})
+            for decision in decisions
+        ]
         pipeline_state.verification_decisions.extend(decisions)
 
         revised = [
