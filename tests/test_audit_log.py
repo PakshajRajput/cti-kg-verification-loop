@@ -143,6 +143,7 @@ def test_experiment_manifest_records_reproducibility_without_report_text(tmp_pat
 
 from src.ingestion.models import PipelineState
 from src.pipeline.verification_state import apply_verification_outputs
+from src.pipeline.verification_response import parse_verification_response
 
 
 def test_empty_final_retry_clears_previous_verifier_outputs():
@@ -192,3 +193,24 @@ def test_verifier_decisions_are_tagged_with_iteration_and_preserved_as_history()
 
     assert [item.iteration for item in result.verification_decisions] == [1, 2]
     assert result.verified_triplets == [original]
+
+
+def test_verifier_response_parser_accepts_valid_json_verdict():
+    parsed = parse_verification_response(
+        '{"verdict":"valid","corrected_triplet":null,"reasoning":"Supported"}'
+    )
+    assert parsed["verdict"] == "valid"
+
+
+def test_verifier_response_parser_rejects_unknown_verdict_instead_of_accepting():
+    import pytest
+
+    with pytest.raises(ValueError, match="Unsupported"):
+        parse_verification_response('{"verdict":"maybe","corrected_triplet":null}')
+
+
+def test_verifier_response_parser_rejects_unrecognizable_response():
+    import pytest
+
+    with pytest.raises(ValueError, match="recognizable verdict"):
+        parse_verification_response("The model returned an unrelated sentence.")
