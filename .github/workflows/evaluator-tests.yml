@@ -21,6 +21,6 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install test dependencies
-        run: python -m pip install --upgrade pip pytest "pydantic>=2.8.0"
+        run: python -m pip install --upgrade pip pytest "pydantic>=2.8.0" requests rich
       - name: Run evaluator regression tests
-        run: python -m pytest -q tests/test_evaluator.py
+        run: python -m pytest -q tests/test_evaluator.py tests/test_dataset_loader.py
