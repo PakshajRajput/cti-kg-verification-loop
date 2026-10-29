@@ -57,11 +57,16 @@ def compute_entity_f1(
     )
 
 
-def compute_rejection_rate(rejected_triplets: list[Triplet], total_extracted: int) -> float:
-    """Share of extracted predictions rejected by the verifier (not a ground-truth hallucination rate)."""
+def compute_rejection_rate(rejected_triplets: list[Triplet] | int, total_extracted: int) -> float:
+    """Share of extracted predictions rejected by the verifier (not a ground-truth hallucination rate).
+
+    Accept an integer count internally as well as a list of rejected triplets for
+    backwards compatibility with existing callers.
+    """
     if total_extracted <= 0:
         return 0.0
-    return len(rejected_triplets) / total_extracted
+    rejected_count = rejected_triplets if isinstance(rejected_triplets, int) else len(rejected_triplets)
+    return rejected_count / total_extracted
 
 
 def compute_hallucination_rate(
@@ -123,8 +128,7 @@ def evaluate_pipeline_run(
     def macro(metric: str) -> float:
         return sum(float(row[metric]) for row in report_results) / len(report_results) if report_results else 0.0
 
-    # The existing EvalMetrics schema does not yet contain explicit macro fields.
-    # Macro scores are added as optional metadata by the evaluation runner.
+    # Macro metrics average report-level scores, complementing pooled micro scores.
     rejection_rate = compute_rejection_rate(all_rejected, total_extracted)
     return EvalMetrics(
         condition=condition,
