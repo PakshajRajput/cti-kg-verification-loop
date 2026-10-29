@@ -174,6 +174,7 @@ def main(
         dataset_mode=dataset_mode,
         allow_synthetic_data=allow_synthetic_data,
         project_root=Path(__file__).resolve().parents[2],
+        data_dir=data_path,
     )
     write_json(manifest_path, manifest)
     console.print(f"[green]Experiment manifest saved to {manifest_path}[/green]")
