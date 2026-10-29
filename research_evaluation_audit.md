@@ -4,7 +4,8 @@
 **Working branch:** `research/evaluation-audit`  
 **Baseline audit commit:** `1b7936e30e2b64906253901ba4bf018bc8d5c774`  
 **Remediation commit:** `2b42305becccf40774e9f4233783ba3bf1e69c42`  
-**Latest follow-up test-restoration commit:** `7c2c3ab264bc58f3633ecf413054a102165c12b3`  
+**Follow-up test-restoration commit:** `7c2c3ab264bc58f3633ecf413054a102165c12b3`  
+**Latest validated code commit:** `7d4aae341b2b9223f2ded25b4107a6122842ff27`  
 **Publication verdict:** **NOT READY FOR PUBLICATION — conditionally remediable**
 
 ## Executive finding
@@ -27,7 +28,7 @@ No valid end-to-end research benchmark was executed during that audit. No model-
 - `_find_json_files` now requires an annotation directory and scans only within that directory; it fails closed if the directory is absent.
 - The dataset loader deduplicates normalized source text. Identical copies are dropped only when their annotation signatures agree; conflicting annotations for the same ID or source text raise an error.
 - Cached report data is deduplicated and rewritten before splitting.
-- Demonstration retrieval excludes the query ID, non-train rows, normalized exact-text clones, and near-identical embedding matches at the configured threshold.
+- Demonstration retrieval excludes the query ID, non-train rows, normalized exact-text clones, and near-identical embedding matches at the configured threshold. The eligibility filter lives in a dependency-light helper and has a direct unit test.
 - The research preflight rejects missing/duplicate IDs, empty report text, and duplicated normalized report text.
 - Regression tests cover annotation-only discovery, absent annotation directories, clone deduplication, duplicate-ID conflicts, duplicate cache rejection, and explicit synthetic-data opt-in rules.
 
@@ -81,6 +82,8 @@ Verifier rejection rate is a process/filtering metric, not a measured hallucinat
 
 - The targeted CI run for remediation commit `2b42305becccf40774e9f4233783ba3bf1e69c42` completed successfully: **33 tests passed in 0.40 seconds**, and `python -m compileall -q src tests` succeeded.
 - Follow-up work restored prior dataset-cache regression coverage instead of replacing those tests. CI for follow-up commit `7c2c3ab264bc58f3633ecf413054a102165c12b3` must be checked before treating that change as validated.
+- The follow-up test-restoration commit `7c2c3ab264bc58f3633ecf413054a102165c12b3` passed 36 tests in 0.47 seconds.
+- Latest validated code commit `7d4aae341b2b9223f2ded25b4107a6122842ff27` passed **37 tests in 0.35 seconds using bare `python -m pytest -q`**, and `python -m compileall -q src tests` succeeded. This verifies the default pytest discovery path no longer descends into downloaded third-party tests.
 - The local real-data preflight has not been run from this GitHub session.
 - A genuine paired baseline/full LLM benchmark has **not** been executed.
 - No experimental metrics or confidence intervals are reported here.
