@@ -48,7 +48,7 @@ console = Console(force_terminal=True, legacy_windows=False)
 DATA_DIR = Path("data")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 RERANKER_MODEL = os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
+LLM_MODEL = os.environ.get("LLM_MODEL") or os.environ.get("PRIMARY_MODEL", "llama-3.3-70b-versatile")
 
 
 def check_env():
