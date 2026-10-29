@@ -17,6 +17,22 @@ The results JSON records the model/configuration, split seed and fraction, repor
 
 For reproducibility, archive the exact dataset version/hash, ATT&CK/STIX snapshot, environment/dependency lock, model and embedding model identifiers, prompt versions, seed/split, and raw per-report predictions. Do not publish only aggregate metrics.
 
+## Running the real-data GitHub benchmark
+
+The manual GitHub Actions workflow is `.github/workflows/research-benchmark.yml`. It downloads CTINexus and the MITRE ATT&CK STIX bundle, builds the vector and BM25 indexes, and runs a preflight that fails on synthetic reports, fewer than 10 annotated reports, fallback ATT&CK data, or mismatched/absent indexes. It then runs baseline and full pipeline against the same seeded held-out split and uploads aggregate metrics, per-report records, the experiment manifest, request-level LLM model-attribution logs, and comparison plots.
+
+Before dispatching it, add the appropriate repository Actions secret: `GROQ_API_KEY`, `OPENAI_API_KEY`, or `HF_TOKEN`, depending on the provider selected. Use provider-compatible primary and fallback model IDs. The workflow is manual and is not run by every push; each benchmark call may incur provider API costs. The workflow file must be available to GitHub Actions' manual-dispatch mechanism, which typically requires it on the repository default branch. Keep this research branch unmerged unless that change is explicitly approved, and otherwise run the same commands from a local checkout.
+
+For a local real-data benchmark, run:
+
+```bash
+python -m pip install -e ".[dev]"
+python scripts/setup_data.py
+python scripts/validate_research_inputs.py data
+python -m src.evaluation.run_evaluation --condition both --subset 20 --test-split 0.2 --seed 42 --model YOUR_PROVIDER_MODEL --data-dir data --results-dir results
+python -m src.evaluation.plot_results --results-file results/evaluation_results.json --figures-dir results/figures
+```
+
 ## Required experimental design
 
 1. Use a frozen test split and keep all examples used for few-shot demonstrations out of the test split.
