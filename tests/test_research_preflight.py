@@ -36,7 +36,7 @@ def _make_valid_inputs(root, *, synthetic=False, attack_count=100, annotated=10)
 def test_research_preflight_accepts_real_annotated_inputs(tmp_path):
     _make_valid_inputs(tmp_path)
 
-    result = validate_research_inputs(tmp_path)
+    result = validate_research_inputs(tmp_path, check_chroma_collection=False)
 
     assert result["real_reports"] == 10
     assert result["annotated_reports"] == 10
@@ -47,18 +47,18 @@ def test_research_preflight_rejects_synthetic_reports(tmp_path):
     _make_valid_inputs(tmp_path, synthetic=True)
 
     with pytest.raises(RuntimeError, match="synthetic"):
-        validate_research_inputs(tmp_path)
+        validate_research_inputs(tmp_path, check_chroma_collection=False)
 
 
 def test_research_preflight_rejects_fallback_attack_entries(tmp_path):
     _make_valid_inputs(tmp_path, attack_count=10)
 
     with pytest.raises(RuntimeError, match="fallback/demo"):
-        validate_research_inputs(tmp_path)
+        validate_research_inputs(tmp_path, check_chroma_collection=False)
 
 
 def test_research_preflight_requires_enough_annotated_reports(tmp_path):
     _make_valid_inputs(tmp_path, annotated=9)
 
     with pytest.raises(RuntimeError, match="ground-truth triplets"):
-        validate_research_inputs(tmp_path)
+        validate_research_inputs(tmp_path, check_chroma_collection=False)
