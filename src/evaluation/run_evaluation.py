@@ -150,9 +150,13 @@ def main(
     # Start clean per-run artifacts; stale lines from previous runs must not mix
     # with this experiment's per-report audit records.
     audit_path = results_path / "per_report_audit.jsonl"
+    llm_audit_path = results_path / "llm_call_audit.jsonl"
     manifest_path = results_path / "experiment_manifest.json"
     if audit_path.exists():
         audit_path.unlink()
+    if llm_audit_path.exists():
+        llm_audit_path.unlink()
+    os.environ["LLM_CALL_AUDIT_PATH"] = str(llm_audit_path)
 
     started_at_utc = datetime.now(timezone.utc).isoformat()
     manifest = build_experiment_manifest(
@@ -240,6 +244,7 @@ def main(
             "test_report_ids": [report.id for report in test_reports],
             "elapsed_seconds": round(elapsed, 1),
             "per_report_audit_file": str(audit_path),
+            "llm_call_audit_file": str(llm_audit_path),
             "experiment_manifest_file": str(manifest_path),
             "dataset_fingerprint_sha256": manifest["dataset"]["fingerprint_sha256"],
             "prompt_sha256": manifest["prompt_sha256"],
