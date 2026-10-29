@@ -114,7 +114,11 @@ def main(
     results_path = Path(results_dir)
     results_path.mkdir(parents=True, exist_ok=True)
 
-    llm_model = model or os.environ.get("LLM_MODEL", "gpt-4o")
+    llm_model = (
+        model
+        or os.environ.get("LLM_MODEL")
+        or os.environ.get("PRIMARY_MODEL", "llama-3.3-70b-versatile")
+    )
     embedding_model = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     reranker_model = os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
