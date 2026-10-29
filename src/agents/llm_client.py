@@ -54,121 +54,127 @@ elif LLM_PROVIDER == "openai":
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 @traceable(name="LLM Call")
+def _log_model_call(
+    *,
+    requested_model: str,
+    actual_model: str,
+    provider: str,
+    outcome: str,
+) -> None:
+    """Append minimal request-level model attribution without prompt or secret data."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    path = Path(os.environ.get("LLM_CALL_AUDIT_PATH", "results/llm_call_audit.jsonl"))
+    record = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "provider": provider,
+        "requested_model": requested_model,
+        "actual_model": actual_model,
+        "outcome": outcome,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\\n")
+    except OSError as error:
+        # Do not change model-call success/failure because an optional audit
+        # filesystem write failed; emit a warning for the missing attribution.
+        print(f"[WARN] Unable to write LLM call audit record: {error}")
+
+
+@traceable(name="LLM Call")
 def call_llm(
     messages: List[Dict[str, str]],
     max_tokens: int = 1500,
     temperature: float = 0.1,
     model: Optional[str] = None,
 ) -> str:
-    """
-    Call the primary LLM, falling back to the secondary if it fails.
-    """
+    """Call the requested primary model, falling back to the configured secondary."""
     import time
     import random
-    
+
     last_error = None
     primary_model = model or PRIMARY_MODEL
     backoff_schedule = [0, 1, 2, 4]  # Maximum 4 attempts
-    
+
     for attempt, delay in enumerate(backoff_schedule):
         if delay > 0:
             jitter = random.uniform(-0.3, 0.3)
             sleep_time = max(0, delay + jitter)
             print(f"[RETRY] Attempt {attempt + 1}/4 for LLM call. Sleeping for {sleep_time:.2f}s...")
             time.sleep(sleep_time)
-            
+
         if LLM_PROVIDER == "groq":
             if not groq_client:
                 raise RuntimeError("Groq client is not initialized. Please set GROQ_API_KEY.")
-                
-            # Primary
-            try:
-                response = groq_client.chat.completions.create(
-                    messages=messages,
-                    model=primary_model,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                last_error = e
-                print(f"Primary ({primary_model}) failed on attempt {attempt + 1}: {e}")
-
-            # Fallback
-            try:
-                response = groq_client.chat.completions.create(
-                    messages=messages,
-                    model=FALLBACK_MODEL,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                last_error = e
-                print(f"Fallback ({FALLBACK_MODEL}) failed on attempt {attempt + 1}: {e}")
-                
+            provider = "groq"
+            primary_call = lambda: groq_client.chat.completions.create(
+                messages=messages, model=primary_model,
+                max_tokens=max_tokens, temperature=temperature,
+            ).choices[0].message.content
+            fallback_call = lambda: groq_client.chat.completions.create(
+                messages=messages, model=FALLBACK_MODEL,
+                max_tokens=max_tokens, temperature=temperature,
+            ).choices[0].message.content
         elif LLM_PROVIDER == "huggingface":
-            # Primary
-            try:
-                primary_client = hf_primary_client
-                if model and model != PRIMARY_MODEL:
-                    primary_client = InferenceClient(
-                        base_url=f"https://api-inference.huggingface.co/models/{primary_model}/v1",
-                        token=HF_TOKEN,
-                    )
-                response = primary_client.chat.completions.create(
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature
+            provider = "huggingface"
+            primary_client = hf_primary_client
+            if model and model != PRIMARY_MODEL:
+                primary_client = InferenceClient(
+                    base_url=f"https://api-inference.huggingface.co/models/{primary_model}/v1",
+                    token=HF_TOKEN,
                 )
-                return response.choices[0].message.content
-            except Exception as e:
-                last_error = e
-                print(f"Primary ({primary_model}) failed on attempt {attempt + 1}: {e}")
-
-            # Fallback
-            try:
-                response = hf_fallback_client.chat.completions.create(
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                last_error = e
-                print(f"Fallback ({FALLBACK_MODEL}) failed on attempt {attempt + 1}: {e}")
-                
+            primary_call = lambda: primary_client.chat.completions.create(
+                messages=messages, max_tokens=max_tokens, temperature=temperature,
+            ).choices[0].message.content
+            fallback_call = lambda: hf_fallback_client.chat.completions.create(
+                messages=messages, max_tokens=max_tokens, temperature=temperature,
+            ).choices[0].message.content
         elif LLM_PROVIDER == "openai":
             if not openai_client:
                 raise RuntimeError("OpenAI client is not initialized. Please set OPENAI_API_KEY.")
-            
-            # Primary
-            try:
-                response = openai_client.chat.completions.create(
-                    messages=messages,
-                    model=primary_model,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                last_error = e
-                print(f"Primary ({primary_model}) failed on attempt {attempt + 1}: {e}")
-
-            # Fallback
-            try:
-                response = openai_client.chat.completions.create(
-                    messages=messages,
-                    model=FALLBACK_MODEL,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                last_error = e
-                print(f"Fallback ({FALLBACK_MODEL}) failed on attempt {attempt + 1}: {e}")
+            provider = "openai"
+            primary_call = lambda: openai_client.chat.completions.create(
+                messages=messages, model=primary_model,
+                max_tokens=max_tokens, temperature=temperature,
+            ).choices[0].message.content
+            fallback_call = lambda: openai_client.chat.completions.create(
+                messages=messages, model=FALLBACK_MODEL,
+                max_tokens=max_tokens, temperature=temperature,
+            ).choices[0].message.content
         else:
             raise ValueError(f"Unsupported LLM_PROVIDER: {LLM_PROVIDER}")
+
+        try:
+            content = primary_call()
+            _log_model_call(
+                requested_model=primary_model, actual_model=primary_model,
+                provider=provider, outcome="success",
+            )
+            return content
+        except Exception as error:
+            last_error = error
+            _log_model_call(
+                requested_model=primary_model, actual_model=primary_model,
+                provider=provider, outcome="primary_failed",
+            )
+            print(f"Primary ({primary_model}) failed on attempt {attempt + 1}: {error}")
+
+        try:
+            content = fallback_call()
+            _log_model_call(
+                requested_model=primary_model, actual_model=FALLBACK_MODEL,
+                provider=provider, outcome="fallback_success",
+            )
+            return content
+        except Exception as error:
+            last_error = error
+            _log_model_call(
+                requested_model=primary_model, actual_model=FALLBACK_MODEL,
+                provider=provider, outcome="fallback_failed",
+            )
+            print(f"Fallback ({FALLBACK_MODEL}) failed on attempt {attempt + 1}: {error}")
 
     raise RuntimeError(f"All 4 attempts failed: {last_error}")
 
