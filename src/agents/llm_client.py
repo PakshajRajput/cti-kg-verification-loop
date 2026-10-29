@@ -124,7 +124,7 @@ def call_llm(
                 return response.choices[0].message.content
             except Exception as e:
                 last_error = e
-                print(f"Primary ({PRIMARY_MODEL}) failed on attempt {attempt + 1}: {e}")
+                print(f"Primary ({primary_model}) failed on attempt {attempt + 1}: {e}")
 
             # Fallback
             try:
@@ -146,14 +146,14 @@ def call_llm(
             try:
                 response = openai_client.chat.completions.create(
                     messages=messages,
-                    model=PRIMARY_MODEL,
+                    model=primary_model,
                     max_tokens=max_tokens,
                     temperature=temperature
                 )
                 return response.choices[0].message.content
             except Exception as e:
                 last_error = e
-                print(f"Primary ({PRIMARY_MODEL}) failed on attempt {attempt + 1}: {e}")
+                print(f"Primary ({primary_model}) failed on attempt {attempt + 1}: {e}")
 
             # Fallback
             try:
