@@ -14,8 +14,8 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import typer
 from dotenv import load_dotenv
@@ -25,7 +25,12 @@ from rich.table import Table
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 load_dotenv()
 
-from src.evaluation.audit_log import build_audit_record, write_jsonl_record
+from src.evaluation.audit_log import (
+    build_audit_record,
+    build_experiment_manifest,
+    write_json,
+    write_jsonl_record,
+)
 from src.evaluation.evaluator import evaluate_pipeline_run
 from src.ingestion.dataset_loader import load_ctinexus_dataset
 from src.ingestion.models import CTIReport, PipelineResult
@@ -74,8 +79,12 @@ def _run_condition(
         predicted_by_report[report.id] = result.final_triplets
         ground_truth_by_report[report.id] = report.ground_truth_triplets
         rejected_by_report[report.id] = result.rejected_triplets
+        # Rejection rate describes the final verifier pass, not all raw outputs
+        # accumulated over re-extraction attempts. Raw totals remain in the audit.
         extracted_counts_by_report[report.id] = (
-            result.total_raw_triplets or len(result.final_triplets) + len(result.rejected_triplets)
+            len(result.verified_triplets) + len(result.rejected_triplets)
+            if condition == "full_pipeline"
+            else len(result.final_triplets)
         )
 
         console.print(
@@ -97,6 +106,8 @@ def main(
     allow_synthetic_data: bool = typer.Option(
         False, help="Allow synthetic supplementation for demo only; never use for reported research results"
     ),
+    seed: int = typer.Option(42, min=0, help="Seed for the reproducible train/test split"),
+    test_split: float = typer.Option(0.2, min=0.01, max=0.99, help="Fraction held out for testing (0.01-0.99)"),
 ):
     """Evaluate the CTI extraction pipeline and save metrics plus per-report audit records."""
     data_path = Path(data_dir)
@@ -113,23 +124,50 @@ def main(
     if condition not in {"baseline", "full", "both"}:
         raise typer.BadParameter("condition must be one of: baseline, full, both")
 
-    train_reports, test_reports = load_ctinexus_dataset(
-        data_path, allow_synthetic=allow_synthetic_data
+    train_reports, all_test_reports = load_ctinexus_dataset(
+        data_path,
+        allow_synthetic=allow_synthetic_data,
+        seed=seed,
+        test_split=test_split,
     )
-    if subset > 0:
-        test_reports = test_reports[:subset]
-    console.print(f"[green]Evaluating on {len(test_reports)} test reports.[/green]")
-
-    all_dataset_reports = train_reports + test_reports
+    # Use the same frozen report IDs for every requested condition; subset only
+    # affects evaluation, not the dataset provenance accounting.
+    test_reports = all_test_reports[:subset] if subset > 0 else all_test_reports
+    all_dataset_reports = train_reports + all_test_reports
     synthetic_report_ids = sorted(
         report.id for report in all_dataset_reports if report.id.startswith("synthetic_")
     )
     dataset_mode = "synthetic_demo" if synthetic_report_ids else "real_data"
+    console.print(
+        f"[green]Evaluating on {len(test_reports)} test reports "
+        f"(split seed={seed}, test fraction={test_split}).[/green]"
+    )
 
-    # Start a clean audit file per experiment invocation, avoiding stale mixed runs.
+    # Start clean per-run artifacts; stale lines from previous runs must not mix
+    # with this experiment's per-report audit records.
     audit_path = results_path / "per_report_audit.jsonl"
+    manifest_path = results_path / "experiment_manifest.json"
     if audit_path.exists():
         audit_path.unlink()
+
+    started_at_utc = datetime.now(timezone.utc).isoformat()
+    manifest = build_experiment_manifest(
+        started_at_utc=started_at_utc,
+        condition=condition,
+        model=llm_model,
+        embedding_model=embedding_model,
+        reranker_model=reranker_model,
+        seed=seed,
+        test_split=test_split,
+        subset=subset,
+        train_reports=train_reports,
+        test_reports=test_reports,
+        dataset_mode=dataset_mode,
+        allow_synthetic_data=allow_synthetic_data,
+        project_root=Path(__file__).resolve().parents[2],
+    )
+    write_json(manifest_path, manifest)
+    console.print(f"[green]Experiment manifest saved to {manifest_path}[/green]")
 
     retriever = None
     if condition in ("full", "both"):
@@ -182,8 +220,13 @@ def main(
         "results": all_results,
         "metadata": {
             "model": llm_model,
+            "embedding_model": embedding_model,
+            "reranker_model": reranker_model if condition in {"full", "both"} else None,
             "num_test_reports": len(test_reports),
             "condition": condition,
+            "seed": seed,
+            "test_split_fraction": test_split,
+            "started_at_utc": started_at_utc,
             "dataset_mode": dataset_mode,
             "allow_synthetic_data": allow_synthetic_data,
             "real_report_count": len(all_dataset_reports) - len(synthetic_report_ids),
@@ -192,6 +235,10 @@ def main(
             "test_report_ids": [report.id for report in test_reports],
             "elapsed_seconds": round(elapsed, 1),
             "per_report_audit_file": str(audit_path),
+            "experiment_manifest_file": str(manifest_path),
+            "dataset_fingerprint_sha256": manifest["dataset"]["fingerprint_sha256"],
+            "prompt_sha256": manifest["prompt_sha256"],
+            "implementation_sha256": manifest["implementation_sha256"],
         },
     }
     output_path = results_path / "evaluation_results.json"
