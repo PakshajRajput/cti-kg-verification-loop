@@ -290,12 +290,17 @@ def make_verifier_node(agent: VerifierAgent):
 
         verified, rejected, decisions, needs_reextraction = agent.verify_triplets(triplets)
 
-        pipeline_state.verified_triplets.extend(verified)
-        pipeline_state.rejected_triplets.extend(rejected)
+        # These collections represent the final attempt, not cumulative values
+        # across retries. Historical verifier decisions remain in the audit trail.
+        pipeline_state.verified_triplets = verified
+        pipeline_state.rejected_triplets = rejected
         pipeline_state.verification_decisions.extend(decisions)
-        
-        revised = [d.corrected_triplet for d in decisions if d.verdict == VerificationVerdict.CORRECTED and d.corrected_triplet]
-        pipeline_state.revised_triplets.extend(revised)
+
+        revised = [
+            d.corrected_triplet for d in decisions
+            if d.verdict == VerificationVerdict.CORRECTED and d.corrected_triplet
+        ]
+        pipeline_state.revised_triplets = revised
 
         pipeline_state.needs_reextraction = (
             needs_reextraction and pipeline_state.iteration < 2
