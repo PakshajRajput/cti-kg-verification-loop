@@ -174,7 +174,7 @@ curl -X POST http://localhost:8000/extract \
 | Triplet Precision | Fraction of predicted triplets matching ground truth |
 | Triplet Recall | Fraction of ground-truth triplets recovered |
 | Triplet F1 | Harmonic mean of Precision and Recall |
-| Verifier Rejection Rate | Fraction of extracted triplets rejected by the verifier; not ground-truth-confirmed hallucination rate |
+| Verifier Rejection Rate | Fraction of triplets rejected in the final verifier pass; not ground-truth-confirmed hallucination rate (N/A for baseline) |
 
 ---
 
