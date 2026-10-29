@@ -1,7 +1,12 @@
 """Tests for safe request-level LLM model attribution audit logging."""
 import json
 
-from src.agents.llm_call_audit import log_model_call as _log_model_call
+from types import SimpleNamespace
+
+from src.agents.llm_call_audit import (
+    log_model_call as _log_model_call,
+    resolve_served_model,
+)
 
 
 def test_model_call_audit_records_actual_fallback_model_without_prompts_or_secrets(tmp_path, monkeypatch):
@@ -44,3 +49,13 @@ def test_model_call_audit_records_one_json_object_per_line(tmp_path, monkeypatch
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) == 2
     assert rows[1]["actual_model"] == "model-b"
+
+
+def test_served_model_id_prefers_provider_response_when_available():
+    response = SimpleNamespace(model="provider-resolved-model-v2")
+    assert resolve_served_model(response, "requested-alias") == "provider-resolved-model-v2"
+
+
+def test_served_model_id_falls_back_to_requested_id_when_provider_omits_it():
+    response = SimpleNamespace(choices=[])
+    assert resolve_served_model(response, "requested-model") == "requested-model"
