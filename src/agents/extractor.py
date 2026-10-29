@@ -361,9 +361,12 @@ class ExtractorAgent:
             if data is None:
                 data = []
         except Exception as e:
+            # Fail the report instead of converting an unavailable LLM into
+            # an apparently valid empty extraction result.
             console.print(f"[red]Extractor LLM call failed: {e}[/red]")
-            data = []
-            recovery_method = "failed_exception"
+            raise RuntimeError(
+                f"Extractor LLM failed for report {report.id!r}: {e}"
+            ) from e
             
         elapsed = time.time() - start_time
         
