@@ -113,7 +113,15 @@ class EvalMetrics(BaseModel):
     entity_precision: float = 0.0
     entity_recall: float = 0.0
     entity_f1: float = 0.0
+    # Deprecated compatibility field: verifier rejection is not confirmed hallucination.
     hallucination_rate: float = 0.0
+    rejection_rate: float = 0.0
+    macro_precision: float = 0.0
+    macro_recall: float = 0.0
+    macro_f1: float = 0.0
+    macro_entity_precision: float = 0.0
+    macro_entity_recall: float = 0.0
+    macro_entity_f1: float = 0.0
     total_extracted: int = 0
     total_verified: int = 0
     total_rejected: int = 0
