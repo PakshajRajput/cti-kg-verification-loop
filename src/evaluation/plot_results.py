@@ -88,7 +88,7 @@ def main(
     _plot_prf1(results, figures_path, metadata)
 
     # ── Plot 2: Verifier Rejection Rate ────────────────────────────────────────
-    _plot_hallucination_rate(results, figures_path, metadata)
+    _plot_rejection_rate(results, figures_path, metadata)
 
     # ── Plot 3: Entity F1 ────────────────────────────────────────────────────
     _plot_entity_f1(results, figures_path, metadata)
@@ -141,7 +141,7 @@ def _plot_prf1(results: list[dict], figures_path: Path, metadata: dict):
     print(f"  Saved: {out}")
 
 
-def _plot_hallucination_rate(results: list[dict], figures_path: Path, metadata: dict):
+def _plot_rejection_rate(results: list[dict], figures_path: Path, metadata: dict):
     """Plot final-pass verifier rejection rate; show N/A for conditions without a verifier."""
     conditions = [r["condition"] for r in results]
     rates = []
