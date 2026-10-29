@@ -13,12 +13,12 @@ on:
           - huggingface
         default: groq
       model:
-        description: Primary model ID for the selected provider
+        description: Primary model ID for the selected provider (default is suitable for Groq; change it for other providers)
         required: true
         type: string
         default: llama-3.3-70b-versatile
       fallback_model:
-        description: Fallback model ID for the selected provider
+        description: Fallback model ID for the selected provider (must be supported by the selected provider)
         required: true
         type: string
         default: llama-3.1-8b-instant
@@ -76,15 +76,21 @@ jobs:
         env:
           SUBSET: ${{ inputs.subset }}
           TEST_SPLIT: ${{ inputs.test_split }}
+          SEED: ${{ inputs.seed }}
         run: |
           python - <<'PY'
           import os
-          subset = int(float(os.environ["SUBSET"]))
+          subset_value = float(os.environ["SUBSET"])
+          seed_value = float(os.environ["SEED"])
           split = float(os.environ["TEST_SPLIT"])
-          if subset < 1:
-              raise SystemExit("subset must be >= 1 for a research run")
+          if not subset_value.is_integer() or subset_value < 1:
+              raise SystemExit("subset must be a positive integer")
+          if not seed_value.is_integer() or seed_value < 0:
+              raise SystemExit("seed must be a non-negative integer")
           if not 0.01 <= split <= 0.99:
               raise SystemExit("test_split must be between 0.01 and 0.99")
+          if not os.environ.get("PRIMARY_MODEL") or not os.environ.get("FALLBACK_MODEL"):
+              raise SystemExit("primary and fallback model IDs must be provided")
           provider = os.environ["LLM_PROVIDER"]
           secret_by_provider = {
               "groq": "GROQ_API_KEY",
