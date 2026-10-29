@@ -260,7 +260,11 @@ def main(
         table.add_row(
             r["condition"], f"{r['precision']:.4f}", f"{r['recall']:.4f}",
             f"{r['f1']:.4f}", f"{r['entity_f1']:.4f}",
-            f"{r.get('rejection_rate', r.get('hallucination_rate', 0.0)):.4f}",
+            (
+                f"{r['rejection_rate']:.4f}"
+                if r.get("rejection_rate") is not None
+                else "N/A"
+            ),
             str(r["num_reports"]),
         )
     console.print(table)
