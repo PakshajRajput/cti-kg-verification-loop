@@ -19,3 +19,5 @@ def test_research_workflow_is_manual_and_uses_real_data_safeguards():
     assert "subset={subset_value}" in workflow
     assert "subset={subset}," not in workflow
     assert "--allow-synthetic-data" not in workflow
+    assert "openai/gpt-oss-120b" in workflow
+    assert "openai/gpt-oss-20b" in workflow

@@ -28,6 +28,8 @@ For a local real-data benchmark, run:
 ```bash
 python -m pip install -e ".[dev]"
 python scripts/setup_data.py
+# For a cache created with the old loader, remove it before setup:
+# Remove-Item data/processed/reports.jsonl
 python scripts/validate_research_inputs.py data
 python -m src.evaluation.run_evaluation --condition both --subset 20 --test-split 0.2 --seed 42 --model YOUR_PROVIDER_MODEL --data-dir data --results-dir results
 python -m src.evaluation.plot_results --results-file results/evaluation_results.json --figures-dir results/figures
@@ -44,7 +46,9 @@ python -m src.evaluation.plot_results --results-file results/evaluation_results.
 
 ## Current limitations
 
-- The legacy result model includes `hallucination_rate`; it is retained as a compatibility alias for rejection rate.
+- The legacy result model exposes `hallucination_rate` only as a deprecated compatibility alias for `rejection_rate`; neither metric is ground-truth-confirmed hallucination.
+- Dataset ingestion reads only CTINexus annotation files, deduplicates exact report text, rejects duplicate IDs with conflicting annotations, and few-shot retrieval excludes the held-out report and identical text clones.
+- The verifier receives source CTI text as primary evidence. ATT&CK is contextual evidence only; absence from ATT&CK cannot itself justify a hallucination verdict.
 - The audit JSONL captures model-level verifier decisions and ATT&CK context IDs, not the full retrieved documents or complete source report text.
 - Extractor and verifier API failures now fail the report/evaluation instead of being counted as empty predictions or valid verdicts. Review the resulting error record before rerunning.
 - The connector can trigger CI but cannot execute the full project environment with real dataset/index/model credentials; run an end-to-end smoke test before treating metrics as final.

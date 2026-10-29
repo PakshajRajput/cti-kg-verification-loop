@@ -16,12 +16,12 @@ on:
         description: Primary model ID for the selected provider (default is suitable for Groq; change it for other providers)
         required: true
         type: string
-        default: llama-3.3-70b-versatile
+        default: openai/gpt-oss-120b
       fallback_model:
         description: Fallback model ID for the selected provider (must be supported by the selected provider)
         required: true
         type: string
-        default: llama-3.1-8b-instant
+        default: openai/gpt-oss-20b
       subset:
         description: Number of held-out reports (1 means smoke-scale research preflight; 0 is not allowed here)
         required: true

@@ -117,7 +117,7 @@ def main(
     llm_model = (
         model
         or os.environ.get("LLM_MODEL")
-        or os.environ.get("PRIMARY_MODEL", "llama-3.3-70b-versatile")
+        or os.environ.get("PRIMARY_MODEL", "openai/gpt-oss-120b")
     )
     embedding_model = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     reranker_model = os.environ.get("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")

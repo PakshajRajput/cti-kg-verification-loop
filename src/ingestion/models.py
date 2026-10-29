@@ -174,8 +174,14 @@ class PipelineResult(BaseModel):
     error: Optional[str] = None
 
     @property
-    def hallucination_rate(self) -> float:
-        total = len(self.final_triplets) + len(self.rejected_triplets)
+    def rejection_rate(self) -> float | None:
+        """Fraction rejected during verification; None if no triplets were assessed."""
+        total = len(self.verified_triplets) + len(self.rejected_triplets)
         if total == 0:
-            return 0.0
+            return None
         return len(self.rejected_triplets) / total
+
+    @property
+    def hallucination_rate(self) -> float | None:
+        """Deprecated compatibility alias; rejection is not proof of hallucination."""
+        return self.rejection_rate

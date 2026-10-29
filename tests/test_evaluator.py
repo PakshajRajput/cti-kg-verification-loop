@@ -80,3 +80,20 @@ def test_rejection_rate_is_zero_when_verifier_ran_and_rejected_nothing():
 
     assert result.rejection_rate == 0.0
     assert result.hallucination_rate == 0.0
+
+
+
+def test_pipeline_result_rejection_rate_uses_verified_denominator():
+    from src.ingestion.models import PipelineResult
+
+    result = PipelineResult(
+        report_id="r",
+        final_triplets=[triplet("APT29", "uses", "GoodTool")],
+        verified_triplets=[triplet("APT29", "uses", "GoodTool")],
+        rejected_triplets=[triplet("APT29", "uses", "BadTool")],
+        revised_triplets=[],
+        verification_decisions=[],
+        iterations=1,
+    )
+    assert result.rejection_rate == 0.5
+    assert result.hallucination_rate == result.rejection_rate

@@ -2,9 +2,13 @@
 
 > **"Verification-in-the-Loop: Reducing Hallucination in LLM-Based Cyber Threat Intelligence Knowledge Graph Construction"**
 
-A research pipeline that extracts entity-relation triplets from CTI reports using few-shot LLM prompting, verifies them against MITRE ATT&CK via hybrid RAG + cross-encoder reranking, and stores verified triplets in a Neo4j knowledge graph. Measures hallucination reduction vs. extraction-only baseline.
+A research pipeline that extracts entity-relation triplets from CTI reports using few-shot LLM prompting, verifies them against MITRE ATT&CK via hybrid RAG + cross-encoder reranking, and stores verified triplets in a Neo4j knowledge graph. Compares extraction quality and verifier behavior against an extraction-only baseline. Verifier rejection is not a validated hallucination rate; claims of hallucination reduction require independent adjudication on held-out reports.
 
 ---
+
+## Research validity notice
+
+Research benchmarks must use unique reports from the CTINexus annotation directory. The loader rejects ambiguous annotation paths and removes exact text duplicates only when annotations match. Few-shot retrieval excludes the query report, test-labeled demonstrations and exact text clones. See `docs/evaluation_protocol.md` before interpreting benchmark metrics.
 
 ## Architecture
 

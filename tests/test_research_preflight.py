@@ -11,11 +11,12 @@ def _write_jsonl(path, rows):
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
 
-def _make_valid_inputs(root, *, synthetic=False, attack_count=100, annotated=10):
+def _make_valid_inputs(root, *, synthetic=False, attack_count=100, annotated=10, duplicate_text=False, duplicate_ids=False):
     reports = []
     for i in range(10):
         reports.append({
-            "id": f"synthetic_{i}" if synthetic and i == 0 else f"report_{i}",
+            "id": ("report_0" if duplicate_ids and i == 1 else f"synthetic_{i}" if synthetic and i == 0 else f"report_{i}"),
+            "text": "identical report text" if duplicate_text and i in (0, 1) else f"unique report text {i}",
             "ground_truth_triplets": [{"entity1": "A", "relation": "uses", "entity2": "B"}]
             if i < annotated else [],
         })
@@ -61,4 +62,16 @@ def test_research_preflight_requires_enough_annotated_reports(tmp_path):
     _make_valid_inputs(tmp_path, annotated=9)
 
     with pytest.raises(RuntimeError, match="ground-truth triplets"):
+        validate_research_inputs(tmp_path, check_chroma_collection=False)
+
+
+def test_preflight_rejects_exact_duplicate_report_text(tmp_path):
+    _make_valid_inputs(tmp_path, duplicate_text=True)
+    with pytest.raises(RuntimeError, match="Duplicate report text"):
+        validate_research_inputs(tmp_path, check_chroma_collection=False)
+
+
+def test_preflight_rejects_duplicate_report_ids(tmp_path):
+    _make_valid_inputs(tmp_path, duplicate_ids=True)
+    with pytest.raises(RuntimeError, match="Duplicate report IDs"):
         validate_research_inputs(tmp_path, check_chroma_collection=False)

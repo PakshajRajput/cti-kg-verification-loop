@@ -41,19 +41,23 @@ def _retrieve_demonstrations(
     demos: list[CTIReport],
     embedder: SentenceTransformer,
     k: int = 5,
+    similarity_threshold: float = 0.9999,
 ) -> list[CTIReport]:
-    """Retrieve the k most similar demonstration reports by text embedding."""
-    if not demos:
+    """Retrieve training examples while excluding self and duplicate-source leakage."""
+    query_text = re.sub(r"\s+", " ", report.text).strip().casefold()
+    eligible = [
+        demo for demo in demos
+        if demo.id != report.id
+        and demo.split == "train"
+        and re.sub(r"\s+", " ", demo.text).strip().casefold() != query_text
+    ]
+    if not eligible:
         return []
-
     query_emb = embedder.encode([report.text], normalize_embeddings=True)[0]
-    demo_texts = [d.text for d in demos]
-    demo_embs = embedder.encode(demo_texts, normalize_embeddings=True)
-
-    sims = [_cosine_similarity(query_emb, de) for de in demo_embs]
-    top_indices = sorted(range(len(sims)), key=lambda i: sims[i], reverse=True)[:k]
-
-    return [demos[i] for i in top_indices]
+    demo_embs = embedder.encode([demo.text for demo in eligible], normalize_embeddings=True)
+    similarities = [_cosine_similarity(query_emb, emb) for emb in demo_embs]
+    ranked = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)
+    return [eligible[i] for i in ranked if similarities[i] < similarity_threshold][:k]
 
 
 def _format_demonstrations(demos: list[CTIReport], max_triplets_per_demo: int = 6) -> str:
@@ -299,7 +303,8 @@ class ExtractorAgent:
         few_shot_k: int = 5,
         max_report_chars: int = 2500,
     ):
-        self.demonstrations = demonstrations
+        # Use only explicitly train-labeled examples.
+        self.demonstrations = [demo for demo in demonstrations if demo.split == "train"]
         self.model = model
         self.few_shot_k = few_shot_k
         self.max_report_chars = max_report_chars

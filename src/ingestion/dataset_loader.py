@@ -119,14 +119,70 @@ def _parse_report_json(data: dict, report_id: str, source: str = "") -> CTIRepor
 
 
 def _find_json_files(base_dir: Path) -> list[Path]:
-    """Recursively find all JSON files that look like CTI report annotations."""
-    json_files = []
-    for path in base_dir.rglob("*.json"):
-        # Skip index/config files
-        if path.name in ("package.json", "index.json", "config.json"):
+    """Find annotation JSON files only; never crawl demo or repository test fixtures."""
+    candidates = [
+        base_dir / "CTINexus-main" / "data" / "annotation",
+        base_dir / "data" / "annotation",
+        base_dir / "annotation",
+    ]
+    annotation_dir = next((path for path in candidates if path.is_dir()), None)
+    if annotation_dir is None:
+        raise RuntimeError(
+            f"Could not locate CTINexus annotation directory under {base_dir}. "
+            "Expected data/annotation; refusing to scan demo/test-fixture directories."
+        )
+    files = sorted(
+        path for path in annotation_dir.rglob("*.json")
+        if path.name not in ("package.json", "index.json", "config.json")
+    )
+    if not files:
+        raise RuntimeError(f"No annotation JSON files found in {annotation_dir}")
+    return files
+
+
+def _normalized_report_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def _annotation_signature(report: CTIReport) -> str:
+    return json.dumps(
+        [triplet.model_dump(mode="json") for triplet in report.ground_truth_triplets],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _deduplicate_reports(reports: list[CTIReport]) -> list[CTIReport]:
+    """Drop identical copies; fail closed when the same text has conflicting labels."""
+    by_id: dict[str, CTIReport] = {}
+    by_text: dict[str, CTIReport] = {}
+    unique: list[CTIReport] = []
+    for report in reports:
+        normalized_text = _normalized_report_text(report.text)
+        if not normalized_text:
             continue
-        json_files.append(path)
-    return sorted(json_files)
+        previous_id = by_id.get(report.id)
+        if previous_id is not None:
+            if (
+                _normalized_report_text(previous_id.text) != normalized_text
+                or _annotation_signature(previous_id) != _annotation_signature(report)
+            ):
+                raise RuntimeError(
+                    f"Conflicting duplicate report ID {report.id!r}; resolve dataset provenance before evaluation."
+                )
+            continue
+        previous_text = by_text.get(normalized_text)
+        if previous_text is not None:
+            if _annotation_signature(previous_text) != _annotation_signature(report):
+                raise RuntimeError(
+                    "Duplicate source report text has conflicting ground-truth annotations; "
+                    "resolve dataset provenance before evaluation."
+                )
+            continue
+        by_id[report.id] = report
+        by_text[normalized_text] = report
+        unique.append(report)
+    return unique
 
 
 def download_ctinexus_dataset(data_dir: Path) -> Path:
@@ -290,6 +346,13 @@ def load_ctinexus_dataset(
                 line = line.strip()
                 if line:
                     reports.append(CTIReport.model_validate_json(line))
+        original_count = len(reports)
+        reports = _deduplicate_reports(reports)
+        if len(reports) != original_count:
+            console.print(f"[yellow]Removed {original_count - len(reports)} duplicate reports from cached data.[/yellow]")
+            with processed_path.open("w", encoding="utf-8") as handle:
+                for report in reports:
+                    handle.write(report.model_dump_json() + "\n")
         synthetic_count = sum(report.id.startswith("synthetic_") for report in reports)
         real_count = len(reports) - synthetic_count
         if not allow_synthetic and (synthetic_count > 0 or real_count < 10):
@@ -333,20 +396,22 @@ def load_ctinexus_dataset(
 
     if force_synthetic:
         reports = _create_synthetic_reports(30)
-    elif len(reports) < 10:
-        if not allow_synthetic:
-            raise RuntimeError(
-                f"Only {len(reports)} annotated reports were loaded from CTINexus. "
-                "Refusing to mix synthetic examples into the research dataset. "
-                "Check the dataset download/path or explicitly pass allow_synthetic=True "
-                "for a demo-only run."
+    else:
+        reports = _deduplicate_reports(reports)
+        if len(reports) < 10:
+            if not allow_synthetic:
+                raise RuntimeError(
+                    f"Only {len(reports)} unique annotated reports were loaded from CTINexus. "
+                    "Refusing to mix synthetic examples into the research dataset. "
+                    "Check the dataset annotation path or explicitly pass allow_synthetic=True "
+                    "for a demo-only run."
+                )
+            console.print(
+                f"[yellow]Only {len(reports)} real reports found. "
+                "Supplementing with synthetic demo data; do not use these results as research evidence.[/yellow]"
             )
-        console.print(
-            f"[yellow]Only {len(reports)} real reports found. "
-            "Supplementing with synthetic demo data; do not use these results as research evidence.[/yellow]"
-        )
-        synthetic = _create_synthetic_reports(max(30, 150 - len(reports)))
-        reports = reports + synthetic
+            synthetic = _create_synthetic_reports(max(30, 150 - len(reports)))
+            reports = reports + synthetic
 
     console.print(f"[green]Total reports: {len(reports)}[/green]")
 

@@ -12,8 +12,9 @@ load_dotenv()
 # ─── Configuration ─────────────────────────────────────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 
-PRIMARY_MODEL = os.getenv("LLM_MODEL") or os.getenv("PRIMARY_MODEL", "llama-3.3-70b-versatile")
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "llama-3.1-8b-instant")
+# Defaults reported working with the audited Groq configuration; override for other providers.
+PRIMARY_MODEL = os.getenv("LLM_MODEL") or os.getenv("PRIMARY_MODEL", "openai/gpt-oss-120b")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "openai/gpt-oss-20b")
 
 # Provider clients
 groq_client = None
