@@ -92,6 +92,9 @@ def main(
     data_dir: str = typer.Option("data", help="Root data directory"),
     results_dir: str = typer.Option("results", help="Results output directory"),
     model: str = typer.Option(None, help="LLM model override (default: from env/config)"),
+    allow_synthetic_data: bool = typer.Option(
+        False, help="Allow synthetic supplementation for demo only; never use for reported research results"
+    ),
 ):
     """Evaluate the CTI extraction pipeline and save P/R/F1 results."""
     data_path = Path(data_dir)
@@ -107,7 +110,9 @@ def main(
 
     # ── Load dataset ──────────────────────────────────────────────────────────
     console.rule("[cyan]Loading Dataset")
-    train_reports, test_reports = load_ctinexus_dataset(data_path)
+    train_reports, test_reports = load_ctinexus_dataset(
+        data_path, allow_synthetic=allow_synthetic_data
+    )
 
     if subset > 0:
         test_reports = test_reports[:subset]
@@ -174,6 +179,8 @@ def main(
             "model": llm_model,
             "num_test_reports": len(test_reports),
             "condition": condition,
+            "dataset_mode": "synthetic_allowed_demo" if allow_synthetic_data else "real_data_required",
+            "test_report_ids": [report.id for report in test_reports],
             "elapsed_seconds": round(elapsed, 1),
         },
     }
@@ -190,7 +197,7 @@ def main(
     table.add_column("Recall", style="green")
     table.add_column("F1", style="bold green")
     table.add_column("Entity F1", style="yellow")
-    table.add_column("Halluc. Rate", style="red")
+    table.add_column("Reject Rate", style="red")
     table.add_column("Reports", style="dim")
 
     for r in all_results:
@@ -200,7 +207,7 @@ def main(
             f"{r['recall']:.4f}",
             f"{r['f1']:.4f}",
             f"{r['entity_f1']:.4f}",
-            f"{r['hallucination_rate']:.4f}",
+            f"{r.get('rejection_rate', r['hallucination_rate']):.4f}",
             str(r["num_reports"]),
         )
 
