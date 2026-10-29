@@ -79,7 +79,7 @@ def _parse_verification_response(raw: str) -> dict:
     if verdict_match:
         verdict = verdict_match.group(1).lower()
         if verdict not in ["valid", "corrected", "hallucinated"]:
-            verdict = "valid"
+            raise ValueError(f"Unsupported verifier verdict: {verdict!r}")
     else:
         # Fallback to conservative keyword matching. Never interpret an
         # unparseable response as a positive verification verdict.
@@ -87,7 +87,7 @@ def _parse_verification_response(raw: str) -> dict:
             verdict = "hallucinated"
         elif "corrected" in lower_raw:
             verdict = "hallucinated"  # No reliable corrected triplet was recovered.
-        elif re.search(r'["\\']?verdict["\\']?\\s*[:=]\\s*["\\']?valid\\b', raw, re.IGNORECASE):
+        elif re.search(r"""["']?verdict["']?\s*[:=]\s*["']?valid\b""", raw, re.IGNORECASE):
             verdict = "valid"
         else:
             raise ValueError("Verifier response did not contain a recognizable verdict")
