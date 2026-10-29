@@ -139,3 +139,56 @@ def test_experiment_manifest_records_reproducibility_without_report_text(tmp_pat
     assert len(manifest["dataset"]["fingerprint_sha256"]) == 64
     assert "training text" not in json.dumps(manifest)
     assert manifest["prompt_sha256"]["extractor_system"] is None
+
+
+from src.ingestion.models import PipelineState
+from src.pipeline.verification_state import apply_verification_outputs
+
+
+def test_empty_final_retry_clears_previous_verifier_outputs():
+    previous = make_triplet("APT29", "uses", "OldTool")
+    state = PipelineState(
+        report=CTIReport(id="retry-report", text=""),
+        iteration=2,
+        canonical_triplets=[],
+        verified_triplets=[previous],
+        rejected_triplets=[make_triplet("APT29", "uses", "BadTool")],
+        revised_triplets=[make_triplet("APT29", "deploys", "OldTool")],
+        needs_reextraction=True,
+        reextraction_feedback="stale feedback",
+    )
+
+    result = apply_verification_outputs(state, verified=[], rejected=[], decisions=[])
+
+    assert result.verified_triplets == []
+    assert result.rejected_triplets == []
+    assert result.revised_triplets == []
+    assert result.needs_reextraction is False
+    assert result.reextraction_feedback == ""
+
+
+def test_verifier_decisions_are_tagged_with_iteration_and_preserved_as_history():
+    original = make_triplet()
+    decision = VerificationDecision(
+        original_triplet=original,
+        verdict=VerificationVerdict.VALID,
+    )
+    state = PipelineState(
+        report=CTIReport(id="retry-report", text=""),
+        iteration=2,
+        canonical_triplets=[original],
+        verification_decisions=[
+            VerificationDecision(original_triplet=make_triplet("OldActor", "uses", "OldTool"),
+                                 verdict=VerificationVerdict.VALID, iteration=1)
+        ],
+    )
+
+    result = apply_verification_outputs(
+        state,
+        verified=[original],
+        rejected=[],
+        decisions=[decision],
+    )
+
+    assert [item.iteration for item in result.verification_decisions] == [1, 2]
+    assert result.verified_triplets == [original]
