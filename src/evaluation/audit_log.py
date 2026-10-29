@@ -65,8 +65,20 @@ def build_experiment_manifest(
     dataset_mode: str,
     allow_synthetic_data: bool,
     project_root: Path,
+    data_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Build a reproducibility manifest without serializing report bodies."""
+    data_root = data_dir or Path("data")
+    attack_paths = {
+        "raw_stix_bundle": data_root / "mitre/enterprise-attack.json",
+        "normalized_entries": data_root / "mitre/entries.jsonl",
+        "bm25_corpus": data_root / "mitre/bm25_corpus.jsonl",
+    }
+    attack_entry_count = None
+    entry_path = attack_paths["normalized_entries"]
+    if entry_path.is_file():
+        with entry_path.open(encoding="utf-8") as handle:
+            attack_entry_count = sum(1 for line in handle if line.strip())
     prompt_paths = {
         "extractor_system": project_root / "src/agents/prompts/extractor_system.txt",
         "extractor_few_shot_template": project_root / "src/agents/prompts/extractor_few_shot.txt",
@@ -122,6 +134,10 @@ def build_experiment_manifest(
             "verifier_max_tokens": 512,
             "max_report_chars": 2500,
             "max_triplets_per_report": 10,
+        },
+        "attack_knowledge_base": {
+            "entry_count": attack_entry_count,
+            "files_sha256": {name: sha256_file(path) for name, path in attack_paths.items()},
         },
         "dataset": {
             "mode": dataset_mode,
