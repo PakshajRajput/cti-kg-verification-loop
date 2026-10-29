@@ -33,5 +33,5 @@ For reproducibility, archive the exact dataset version/hash, ATT&CK/STIX snapsho
 ## Current limitations
 
 - The legacy result model includes `hallucination_rate`; it is retained as a compatibility alias for rejection rate.
-- The runner does not yet persist every per-report prediction and verifier decision to a standalone audit file. Add this before a paper's final evaluation.
-- This repository connection cannot execute the project's Python test suite here. Run `pytest -q tests/test_evaluator.py` locally and inspect failures before merging.
+- The audit JSONL captures model-level verifier decisions and ATT&CK context IDs, not the full retrieved documents or complete source report text.
+- The connector can trigger CI but cannot run the whole project environment directly; review the GitHub Actions result and also run an end-to-end smoke test with the intended dataset, ATT&CK index, and model credentials before treating metrics as final.
