@@ -30,6 +30,7 @@ from src.ingestion.models import (
     VerificationDecision,
     VerificationVerdict,
 )
+from src.pipeline.verification_state import apply_verification_outputs
 from src.rag.hybrid_retriever import HybridRetriever
 
 console = Console()
@@ -80,13 +81,16 @@ def _parse_verification_response(raw: str) -> dict:
         if verdict not in ["valid", "corrected", "hallucinated"]:
             verdict = "valid"
     else:
-        # Fallback to keyword matching
+        # Fallback to conservative keyword matching. Never interpret an
+        # unparseable response as a positive verification verdict.
         if "hallucinated" in lower_raw or "invalid" in lower_raw or "rejected" in lower_raw:
             verdict = "hallucinated"
         elif "corrected" in lower_raw:
-            verdict = "hallucinated" # Safer fallback if we can't parse the corrected triplet
-        else:
+            verdict = "hallucinated"  # No reliable corrected triplet was recovered.
+        elif re.search(r'["\\']?verdict["\\']?\\s*[:=]\\s*["\\']?valid\\b', raw, re.IGNORECASE):
             verdict = "valid"
+        else:
+            raise ValueError("Verifier response did not contain a recognizable verdict")
             
     # Extract reasoning
     reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', raw, re.IGNORECASE)
@@ -216,6 +220,11 @@ class VerifierAgent:
                 ) from e
 
             corrected = self._parse_corrected_triplet(parsed.get("corrected_triplet"))
+            if verdict == VerificationVerdict.CORRECTED and corrected is None:
+                raise RuntimeError(
+                    f"Verifier declared a correction but supplied no valid corrected triplet "
+                    f"for {triplet.to_text()!r}"
+                )
             reasoning = str(parsed.get("reasoning", ""))
 
             decision = VerificationDecision(
@@ -291,32 +300,17 @@ def make_verifier_node(agent: VerifierAgent):
         pipeline_state.verifier_ran = True
 
         if not triplets:
-            # An empty final retry is a real empty result. Clear outputs from
-            # earlier attempts while retaining their decision history.
-            pipeline_state.verified_triplets = []
-            pipeline_state.rejected_triplets = []
-            pipeline_state.revised_triplets = []
+            apply_verification_outputs(pipeline_state, verified=[], rejected=[], decisions=[])
             pipeline_state.needs_reextraction = False
-            pipeline_state.reextraction_feedback = ""
             return pipeline_state.model_dump()
 
         verified, rejected, decisions, needs_reextraction = agent.verify_triplets(triplets)
-
-        # These collections represent the final attempt, not cumulative values
-        # across retries. Historical verifier decisions remain in the audit trail.
-        pipeline_state.verified_triplets = verified
-        pipeline_state.rejected_triplets = rejected
-        decisions = [
-            decision.model_copy(update={"iteration": pipeline_state.iteration})
-            for decision in decisions
-        ]
-        pipeline_state.verification_decisions.extend(decisions)
-
-        revised = [
-            d.corrected_triplet for d in decisions
-            if d.verdict == VerificationVerdict.CORRECTED and d.corrected_triplet
-        ]
-        pipeline_state.revised_triplets = revised
+        apply_verification_outputs(
+            pipeline_state,
+            verified=verified,
+            rejected=rejected,
+            decisions=decisions,
+        )
 
         pipeline_state.needs_reextraction = (
             needs_reextraction and pipeline_state.iteration < 2
