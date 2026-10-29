@@ -21,7 +21,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from src.agents.llm_client import call_llm
+from src.agents.llm_client import PRIMARY_MODEL, call_llm
 
 from src.ingestion.models import (
     EntityType,
@@ -70,7 +70,7 @@ class VerifierAgent:
     def __init__(
         self,
         retriever: HybridRetriever,
-        model: str = "gpt-4o",
+        model: str = PRIMARY_MODEL,
         rag_top_k: int = 5,
     ):
         self.retriever = retriever
@@ -96,6 +96,7 @@ class VerifierAgent:
             ],
             temperature=0.0,
             max_tokens=512,
+            model=self.model,
         )
 
     def _parse_corrected_triplet(self, data: dict | None) -> Triplet | None:
