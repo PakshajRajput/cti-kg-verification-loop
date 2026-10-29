@@ -92,3 +92,20 @@ def test_deduplicate_reports_rejects_conflicting_duplicate_ids():
 
     with pytest.raises(RuntimeError, match="Conflicting duplicate report ID"):
         _deduplicate_reports(rows)
+
+
+
+def test_demo_selection_excludes_query_clone_and_non_train_reports():
+    from src.ingestion.demo_selection import filter_eligible_demonstrations
+
+    query = CTIReport(id="query", text="APT uses tool", split="test")
+    demonstrations = [
+        CTIReport(id="query", text="different text", split="train"),
+        CTIReport(id="clone", text="  apt   uses tool ", split="train"),
+        CTIReport(id="held-out", text="another unique report", split="test"),
+        CTIReport(id="train-good", text="distinct training report", split="train"),
+    ]
+
+    selected = filter_eligible_demonstrations(query, demonstrations)
+
+    assert [demo.id for demo in selected] == ["train-good"]

@@ -20,6 +20,7 @@ from sentence_transformers import SentenceTransformer
 from src.agents.llm_client import PRIMARY_MODEL, call_llm_json
 
 from src.ingestion.models import CTIReport, EntityType, PipelineState, Triplet
+from src.ingestion.demo_selection import filter_eligible_demonstrations
 
 console = Console()
 
@@ -44,13 +45,7 @@ def _retrieve_demonstrations(
     similarity_threshold: float = 0.9999,
 ) -> list[CTIReport]:
     """Retrieve training examples while excluding self and duplicate-source leakage."""
-    query_text = re.sub(r"\s+", " ", report.text).strip().casefold()
-    eligible = [
-        demo for demo in demos
-        if demo.id != report.id
-        and demo.split == "train"
-        and re.sub(r"\s+", " ", demo.text).strip().casefold() != query_text
-    ]
+    eligible = filter_eligible_demonstrations(report, demos)
     if not eligible:
         return []
     query_emb = embedder.encode([report.text], normalize_embeddings=True)[0]
