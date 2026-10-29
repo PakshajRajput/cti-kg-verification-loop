@@ -107,6 +107,7 @@ def build_experiment_manifest(
             "embedding": embedding_model,
             "reranker": reranker_model if condition in {"full", "both"} else None,
         },
+        "llm_call_audit_file": os.environ.get("LLM_CALL_AUDIT_PATH", "results/llm_call_audit.jsonl"),
         "configuration": {
             "seed": seed,
             "test_split_fraction": test_split,
