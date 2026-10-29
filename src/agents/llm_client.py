@@ -53,7 +53,6 @@ elif LLM_PROVIDER == "openai":
     else:
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-@traceable(name="LLM Call")
 def _log_model_call(
     *,
     requested_model: str,
