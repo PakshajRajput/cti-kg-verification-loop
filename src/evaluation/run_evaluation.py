@@ -62,6 +62,12 @@ def _run_condition(
         console.print(f"\n[cyan]  [{i+1}/{len(test_reports)}] Report: {report.id}[/cyan]")
 
         result: PipelineResult = runner.run(report)
+        if result.error:
+            # A failed report must not silently become an empty prediction set:
+            # that would contaminate aggregate research metrics.
+            raise RuntimeError(
+                f"Pipeline failed for report {report.id!r} during {condition}: {result.error}"
+            )
 
         predicted_by_report[report.id] = result.final_triplets
         ground_truth_by_report[report.id] = report.ground_truth_triplets
@@ -173,13 +179,22 @@ def main(
     elapsed = time.time() - start_time
 
     # ── Save results ──────────────────────────────────────────────────────────
+    all_dataset_reports = train_reports + test_reports
+    synthetic_report_ids = sorted(
+        report.id for report in all_dataset_reports if report.id.startswith("synthetic_")
+    )
+    real_report_count = len(all_dataset_reports) - len(synthetic_report_ids)
     output = {
         "results": all_results,
         "metadata": {
             "model": llm_model,
             "num_test_reports": len(test_reports),
             "condition": condition,
-            "dataset_mode": "synthetic_allowed_demo" if allow_synthetic_data else "real_data_required",
+            "dataset_mode": "synthetic_demo" if synthetic_report_ids else "real_data",
+            "allow_synthetic_data": allow_synthetic_data,
+            "real_report_count": real_report_count,
+            "synthetic_report_count": len(synthetic_report_ids),
+            "synthetic_report_ids": synthetic_report_ids,
             "test_report_ids": [report.id for report in test_reports],
             "elapsed_seconds": round(elapsed, 1),
         },
