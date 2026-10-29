@@ -177,6 +177,7 @@ def make_canonicalizer_node(agent: CanonicalizerAgent):
         pipeline_state = PipelineState.model_validate(state)
         canonical = agent.canonicalize(pipeline_state.raw_triplets)
         pipeline_state.canonical_triplets = canonical
+        pipeline_state.canonical_triplets_by_iteration.append(canonical)
         return pipeline_state.model_dump()
 
     return canonicalizer_node
