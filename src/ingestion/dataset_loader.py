@@ -275,7 +275,13 @@ def load_ctinexus_dataset(
     processed_path = data_dir / "processed" / "reports.jsonl"
     processed_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Load from cache if available
+    if force_synthetic and not allow_synthetic:
+        raise RuntimeError(
+            "force_synthetic=True requires allow_synthetic=True. "
+            "Synthetic data is for demo/debug runs only, not research evaluation."
+        )
+
+    # Load from cache if available, but enforce the same provenance guard as raw data.
     if processed_path.exists() and not force_synthetic:
         console.print(f"[green]Loading cached dataset from {processed_path}[/green]")
         reports = []
@@ -284,7 +290,19 @@ def load_ctinexus_dataset(
                 line = line.strip()
                 if line:
                     reports.append(CTIReport.model_validate_json(line))
-        console.print(f"[green]Loaded {len(reports)} reports from cache.[/green]")
+        synthetic_count = sum(report.id.startswith("synthetic_") for report in reports)
+        real_count = len(reports) - synthetic_count
+        if not allow_synthetic and (synthetic_count > 0 or real_count < 10):
+            raise RuntimeError(
+                f"Cached dataset contains {real_count} real reports and "
+                f"{synthetic_count} synthetic reports. Research evaluation requires "
+                "at least 10 real annotated reports and no synthetic examples. "
+                "Use a clean dataset cache or explicitly enable synthetic data for demos."
+            )
+        console.print(
+            f"[green]Loaded {len(reports)} reports from cache "
+            f"({real_count} real, {synthetic_count} synthetic).[/green]"
+        )
         return _split_reports(reports, test_split, seed)
 
     # Try to load from CTINexus directory
