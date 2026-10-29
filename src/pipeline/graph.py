@@ -49,7 +49,9 @@ def _make_kg_builder_node():
             else pipeline_state.canonical_triplets
         )
 
-        # Deduplicate for the final graph
+        # Deduplicate for the final graph.
+        # In baseline mode these are the canonicalized predictions; in full
+        # mode only the current verifier pass's verified predictions are final.
         seen: set[tuple[str, str, str]] = set()
         deduped = []
         for t in source_triplets:
@@ -57,7 +59,7 @@ def _make_kg_builder_node():
             if key not in seen:
                 seen.add(key)
                 deduped.append(t)
-                
+
         pipeline_state.final_triplets = deduped
         console.print(
             f"[bold green]KG Builder: {len(source_triplets)} "
