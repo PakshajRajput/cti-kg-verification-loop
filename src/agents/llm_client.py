@@ -53,7 +53,10 @@ elif LLM_PROVIDER == "openai":
     else:
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-from src.agents.llm_call_audit import log_model_call as _log_model_call
+from src.agents.llm_call_audit import (
+    log_model_call as _log_model_call,
+    resolve_served_model,
+)
 @traceable(name="LLM Call")
 def call_llm(
     messages: List[Dict[str, str]],
@@ -120,7 +123,7 @@ def call_llm(
         try:
             response = primary_call()
             content = response.choices[0].message.content
-            served_model = getattr(response, "model", None) or primary_model
+            served_model = resolve_served_model(response, primary_model)
             _log_model_call(
                 requested_model=primary_model, actual_model=str(served_model),
                 provider=provider, outcome="success",
@@ -137,7 +140,7 @@ def call_llm(
         try:
             response = fallback_call()
             content = response.choices[0].message.content
-            served_model = getattr(response, "model", None) or FALLBACK_MODEL
+            served_model = resolve_served_model(response, FALLBACK_MODEL)
             _log_model_call(
                 requested_model=primary_model, actual_model=str(served_model),
                 provider=provider, outcome="fallback_success",
